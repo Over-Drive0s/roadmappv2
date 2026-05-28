@@ -3834,7 +3834,7 @@ export default function DreamboardPage() {
   );
 
   return (
-    <div className="mx-auto flex max-w-[1600px] flex-col">
+    <div className="mx-auto flex h-full min-h-0 max-w-[1600px] flex-1 flex-col">
       <div className="mb-4 overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -3912,7 +3912,7 @@ export default function DreamboardPage() {
       <div
         ref={viewportRef}
         tabIndex={-1}
-        className="relative min-h-[calc(100vh-14rem)] overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm outline-none"
+        className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm outline-none"
         style={{ cursor: boardCursor }}
         onPointerDownCapture={handleViewportPointerDownCapture}
         onPointerDown={handleBoardPointerDown}

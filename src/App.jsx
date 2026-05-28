@@ -2075,8 +2075,21 @@ export default function App() {
         <MobileHeader />
         {activePage === "dashboard" && <Header onOpenOnboarding={openOnboarding} />}
 
-        <main className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto p-4 pb-20 sm:p-5 lg:pb-6 lg:p-6">
-          <div key={activePage} className="page-content-enter">
+        <main
+          className={cn(
+            "scrollbar-hidden min-h-0 flex-1 p-4 pb-20 sm:p-5 lg:pb-6 lg:p-6",
+            activePage === "dreamboard"
+              ? "flex flex-col overflow-hidden"
+              : "overflow-y-auto"
+          )}
+        >
+          <div
+            key={activePage}
+            className={cn(
+              "page-content-enter",
+              activePage === "dreamboard" && "flex min-h-0 flex-1 flex-col"
+            )}
+          >
           {activePage === "dashboard" ? (
             <DashboardPage
               projects={projects}

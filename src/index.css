@@ -70,8 +70,8 @@ body {
 .app-dashboard-card {
   position: relative;
   isolation: isolate;
-  width: 1440px;
-  height: 920px;
+  width: 1560px;
+  height: 1060px;
   flex: none;
   overflow: hidden;
   border-radius: 1.25rem;
