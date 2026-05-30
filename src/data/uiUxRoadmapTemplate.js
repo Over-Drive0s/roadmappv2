@@ -307,13 +307,3 @@ export const UI_UX_ROADMAP_TEMPLATE = [
     ],
   },
 ];
-
-export function getUiUxTemplateQuestionIds() {
-  return UI_UX_ROADMAP_TEMPLATE.flatMap((phase) =>
-    phase.sections.flatMap((section) => section.questions.map((q) => q.id))
-  );
-}
-
-export function emptyUiUxTemplateAnswers() {
-  return Object.fromEntries(getUiUxTemplateQuestionIds().map((id) => [id, ""]));
-}

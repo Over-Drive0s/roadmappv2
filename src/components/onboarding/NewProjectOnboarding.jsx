@@ -20,16 +20,24 @@ import UiUxTemplateForm from "./UiUxTemplateForm";
 import {
   clearOnboardingDraft,
 } from "../../lib/projectStorage";
-import { emptyPhase, getNextProjectId, normalizePhase, projectToForm } from "../../lib/projectUtils";
+import { emptyPhase, getNextProjectId, getPhaseAssigneeName, normalizePhase, projectToForm, syncTeamFromPhaseAssignees } from "../../lib/projectUtils";
 import {
   buildDescriptionFromUiUxTemplate,
   buildPhasesFromUiUxTemplate,
 } from "../../lib/uiUxTemplateGenerator";
 import {
-  emptyUiUxTemplateAnswers,
+  addTemplateStep,
+  cloneUiUxTemplate,
+  countFilledTemplateSteps,
+  removeTemplateStep,
+  updateTemplateStepText,
+} from "../../lib/uiUxTemplateEditor";
+import {
   PROJECT_TEMPLATE_MODES,
 } from "../../data/uiUxRoadmapTemplate";
 import { useTeam } from "../../context/TeamContext";
+import { useSyncedTeamWorkload } from "../../hooks/useSyncedTeamWorkload";
+import { parseUsdBudgetInput } from "../../lib/formatCurrency";
 import { onboardingFieldVariant, onboardingShell } from "./onboardingTheme";
 
 const FIELD = onboardingFieldVariant;
@@ -125,6 +133,7 @@ function ReviewRow({ label, value }) {
 export default function NewProjectOnboarding({ open, onClose, onSubmit, editingProject, projects = [] }) {
   const isEditing = Boolean(editingProject);
   const { members } = useTeam();
+  const workload = useSyncedTeamWorkload(projects);
   const optionalTeamMembers = useMemo(
     () => members.filter((member) => member.id !== "enis"),
     [members]
@@ -133,7 +142,7 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
   const [form, setForm] = useState(initialForm);
   const [selectedPhaseId, setSelectedPhaseId] = useState("foundation");
   const [templateMode, setTemplateMode] = useState("blank");
-  const [templateAnswers, setTemplateAnswers] = useState(emptyUiUxTemplateAnswers);
+  const [templateDraft, setTemplateDraft] = useState(cloneUiUxTemplate);
   const [activeTemplatePhaseId, setActiveTemplatePhaseId] = useState("foundation");
   const [generateError, setGenerateError] = useState("");
   const [isGenerating, setIsGenerating] = useState(false);
@@ -144,7 +153,7 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
       setStep(1);
       setSelectedPhaseId("foundation");
       setTemplateMode("blank");
-      setTemplateAnswers(emptyUiUxTemplateAnswers());
+      setTemplateDraft(cloneUiUxTemplate());
       setActiveTemplatePhaseId("foundation");
       setGenerateError("");
       setIsGenerating(false);
@@ -172,6 +181,19 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
 
   const { foundation, phases, team, kpis } = form;
 
+  const phaseAssignees = useMemo(
+    () =>
+      Object.fromEntries(
+        PHASE_DEFS.map((phase) => [phase.id, phases[phase.id]?.assignedMemberId ?? ""])
+      ),
+    [phases]
+  );
+
+  const syncedTeamPreview = useMemo(
+    () => syncTeamFromPhaseAssignees(phases, members, team),
+    [phases, members, team]
+  );
+
   const selectedPhase = PHASE_DEFS.find((p) => p.id === selectedPhaseId) ?? PHASE_DEFS[0];
   const selectedPhaseHasTask = (phases[selectedPhaseId]?.tasks?.length ?? 0) > 0;
 
@@ -182,7 +204,30 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
 
   const allPhasesHaveTasks = phasesMissingTasks.length === 0;
 
+  const skipsRoadmapStep = templateMode === "ui_ux" && !isEditing;
+
+  const activeSteps = useMemo(() => {
+    if (skipsRoadmapStep) {
+      return [STEPS[0], STEPS[2], STEPS[3], STEPS[4]].map((entry, index) => ({
+        ...entry,
+        displayId: index + 1,
+        internalStep: entry.id,
+      }));
+    }
+    return STEPS.map((entry) => ({
+      ...entry,
+      displayId: entry.id,
+      internalStep: entry.id,
+    }));
+  }, [skipsRoadmapStep]);
+
   const templateGenerated = allPhasesHaveTasks;
+
+  useEffect(() => {
+    if (skipsRoadmapStep && step === 2) {
+      setStep(3);
+    }
+  }, [skipsRoadmapStep, step]);
 
   const canGoNext =
     (step !== 2 || selectedPhaseHasTask) &&
@@ -190,7 +235,7 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
 
   const nextStepHint =
     step === 1 && templateMode === "ui_ux" && !templateGenerated
-      ? "Fill out the template and click Generate, or switch back to Blank"
+      ? "Click Generate to build the roadmap, or switch back to Blank"
       : step === 2 && !selectedPhaseHasTask
         ? `Add at least one task to ${selectedPhase.title} to continue`
         : null;
@@ -220,20 +265,32 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
       phases: { ...f.phases, [phaseId]: normalizePhase(data) },
     }));
 
+  const updatePhaseAssignee = (phaseId, memberId) => {
+    updatePhase(phaseId, { ...phases[phaseId], assignedMemberId: memberId });
+  };
+
   const updateTeam = (field, value) =>
     setForm((f) => ({ ...f, team: { ...f.team, [field]: value } }));
 
+  const handleBudgetChange = (value) => {
+    updateTeam("estimatedBudget", parseUsdBudgetInput(value));
+  };
+
   const toggleMember = (id) => {
     setForm((f) => {
-      const members = f.team.teamMembers.includes(id)
+      const memberIds = f.team.teamMembers.includes(id)
         ? f.team.teamMembers.filter((m) => m !== id)
         : [...f.team.teamMembers, id];
-      return { ...f, team: { ...f.team, teamMembers: members } };
+      return { ...f, team: { ...f.team, teamMembers: memberIds } };
     });
   };
 
   const updateKpis = (field, value) =>
     setForm((f) => ({ ...f, kpis: { ...f.kpis, [field]: value } }));
+
+  const handleRevenueGoalChange = (value) => {
+    updateKpis("revenueGoal", parseUsdBudgetInput(value));
+  };
 
   const handleClose = () => {
     if (!isEditing) clearOnboardingDraft();
@@ -247,16 +304,13 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
       ? editingProject.id
       : getNextProjectId(foundation.clientType, projects);
 
+    const syncedTeam = syncTeamFromPhaseAssignees(form.phases, members, form.team);
+
     const project = {
       id,
       ...foundationFields,
       phases: form.phases,
-      team: {
-        ...form.team,
-        teamMembers: form.team.teamMembers.map(
-          (id) => members.find((m) => m.id === id)
-        ),
-      },
+      team: syncedTeam,
       kpis: form.kpis,
       color: isEditing ? editingProject.color : undefined,
       createdAt: isEditing ? editingProject.createdAt : new Date().toISOString(),
@@ -269,6 +323,12 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
   };
 
   const next = () => {
+    if (step === 1 && skipsRoadmapStep) {
+      if (!templateGenerated) return;
+      setStep(3);
+      return;
+    }
+
     if (step === 2) {
       if (!selectedPhaseHasTask) return;
 
@@ -297,14 +357,20 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
 
     setStep((s) => Math.min(s + 1, 5));
   };
-  const back = () => setStep((s) => Math.max(s - 1, 1));
+
+  const back = () => {
+    if (step === 3 && skipsRoadmapStep) {
+      setStep(1);
+      return;
+    }
+    setStep((s) => Math.max(s - 1, 1));
+  };
 
   const handleTemplateModeChange = (mode) => {
     setTemplateMode(mode);
     setGenerateError("");
 
     if (mode === "blank") {
-      setTemplateAnswers(emptyUiUxTemplateAnswers());
       setForm((f) => ({
         ...f,
         phases: {
@@ -318,11 +384,24 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
     }
 
     setActiveTemplatePhaseId("foundation");
-    setTemplateAnswers(emptyUiUxTemplateAnswers());
+    setTemplateDraft(cloneUiUxTemplate());
+    if (step === 2) setStep(1);
   };
 
-  const handleTemplateAnswerChange = (questionId, value) => {
-    setTemplateAnswers((prev) => ({ ...prev, [questionId]: value }));
+  const handleAddTemplateStep = (phaseId, sectionId) => {
+    setTemplateDraft((current) => addTemplateStep(current, phaseId, sectionId));
+    setGenerateError("");
+  };
+
+  const handleRemoveTemplateStep = (phaseId, sectionId, questionId) => {
+    setTemplateDraft((current) => removeTemplateStep(current, phaseId, sectionId, questionId));
+    setGenerateError("");
+  };
+
+  const handleUpdateTemplateStepText = (phaseId, sectionId, questionId, text) => {
+    setTemplateDraft((current) =>
+      updateTemplateStepText(current, phaseId, sectionId, questionId, text)
+    );
     setGenerateError("");
   };
 
@@ -332,14 +411,16 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
       return;
     }
 
+    if (countFilledTemplateSteps(templateDraft) === 0) {
+      setGenerateError("Add at least one step with a title before generating.");
+      return;
+    }
+
     setIsGenerating(true);
     setGenerateError("");
 
-    const generatedPhases = buildPhasesFromUiUxTemplate(templateAnswers);
-    const description = buildDescriptionFromUiUxTemplate(
-      templateAnswers,
-      foundation.projectName
-    );
+    const generatedPhases = buildPhasesFromUiUxTemplate(templateDraft);
+    const description = buildDescriptionFromUiUxTemplate(foundation.projectName);
 
     setForm((f) => ({
       ...f,
@@ -347,10 +428,18 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
         ...f.foundation,
         description: description || f.foundation.description,
       },
-      phases: generatedPhases,
+      phases: Object.fromEntries(
+        Object.entries(generatedPhases).map(([phaseId, phase]) => [
+          phaseId,
+          {
+            ...phase,
+            assignedMemberId: f.phases[phaseId]?.assignedMemberId ?? "",
+          },
+        ])
+      ),
     }));
     setSelectedPhaseId("foundation");
-    setStep(2);
+    setStep(3);
     setIsGenerating(false);
   };
 
@@ -383,7 +472,9 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
               <p className="mt-0.5 text-xs font-medium text-slate-300">
                 {isEditing
                   ? "Update your project details across 5 steps"
-                  : "Set up your project in 5 simple steps"}
+                  : skipsRoadmapStep
+                    ? "Set up your project in 4 simple steps"
+                    : "Set up your project in 5 simple steps"}
               </p>
             </div>
             <button
@@ -397,11 +488,11 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
 
           {/* Step indicator */}
           <div className="mt-5 flex items-center gap-1">
-            {STEPS.map((s, i) => {
-              const done = step > s.id;
-              const active = step === s.id;
+            {activeSteps.map((s, i) => {
+              const done = step > s.internalStep;
+              const active = step === s.internalStep;
               return (
-                <div key={s.id} className="flex flex-1 items-center gap-1">
+                <div key={s.internalStep} className="flex flex-1 items-center gap-1">
                   <div className="flex flex-col items-center gap-1 flex-1">
                     <div
                       className={cn(
@@ -413,7 +504,7 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
                             : "bg-slate-700 text-slate-300 ring-1 ring-slate-600"
                       )}
                     >
-                      {done ? <Check className="h-3.5 w-3.5" /> : s.id}
+                      {done ? <Check className="h-3.5 w-3.5" /> : s.displayId}
                     </div>
                     <span
                       className={cn(
@@ -424,11 +515,11 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
                       {s.label.split(" ")[0]}
                     </span>
                   </div>
-                  {i < STEPS.length - 1 && (
+                  {i < activeSteps.length - 1 && (
                     <div
                       className={cn(
                         "mb-4 h-px flex-1",
-                        step > s.id ? "bg-indigo-400" : "bg-slate-600"
+                        step > s.internalStep ? "bg-indigo-400" : "bg-slate-600"
                       )}
                     />
                   )}
@@ -583,21 +674,27 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
                   )}
 
                   <UiUxTemplateForm
-                    answers={templateAnswers}
-                    onAnswerChange={handleTemplateAnswerChange}
+                    template={templateDraft}
                     activePhaseId={activeTemplatePhaseId}
                     onPhaseChange={setActiveTemplatePhaseId}
+                    onAddStep={handleAddTemplateStep}
+                    onRemoveStep={handleRemoveTemplateStep}
+                    onUpdateStepText={handleUpdateTemplateStepText}
                     onGenerate={handleGenerateFromTemplate}
                     generateError={generateError}
                     isGenerating={isGenerating}
+                    members={members}
+                    phaseAssignees={phaseAssignees}
+                    onPhaseAssigneeChange={updatePhaseAssignee}
+                    workloadByMemberId={workload.workloadByMemberId}
                   />
                 </>
               )}
             </div>
           )}
 
-          {/* Step 2 */}
-          {step === 2 && (
+          {/* Step 2 — blank template only */}
+          {step === 2 && !skipsRoadmapStep && (
             <div className="space-y-5">
               <p className="text-sm font-medium text-slate-800">
                 Select a phase to configure. Break each roadmap phase into scheduled tasks
@@ -635,6 +732,8 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
                 data={phases[selectedPhaseId]}
                 onChange={(data) => updatePhase(selectedPhaseId, data)}
                 projectName={foundation.projectName || "New project"}
+                members={members}
+                workloadByMemberId={workload.workloadByMemberId}
               />
             </div>
           )}
@@ -712,9 +811,10 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
                 variant={FIELD}
                 label="Estimated Budget"
                 id="estimatedBudget"
-                placeholder="e.g. $50,000"
+                placeholder="e.g. $20,000"
+                inputMode="numeric"
                 value={team.estimatedBudget}
-                onChange={(e) => updateTeam("estimatedBudget", e.target.value)}
+                onChange={(e) => handleBudgetChange(e.target.value)}
               />
             </div>
           )}
@@ -733,9 +833,10 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
                 variant={FIELD}
                 label="Revenue Goal"
                 id="revenueGoal"
-                placeholder="e.g. $100,000 ARR"
+                placeholder="e.g. $20,000"
+                inputMode="numeric"
                 value={kpis.revenueGoal}
-                onChange={(e) => updateKpis("revenueGoal", e.target.value)}
+                onChange={(e) => handleRevenueGoalChange(e.target.value)}
               />
               <div className="grid grid-cols-2 gap-4">
                 <Select
@@ -801,6 +902,7 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
                       <div className="flex justify-between gap-4">
                         <span className="text-xs font-bold text-slate-900">{p.title}</span>
                         <span className="text-xs font-semibold text-slate-700">
+                          {getPhaseAssigneeName(phase, members) ?? "Unassigned"} ·{" "}
                           {tasks.length} task{tasks.length !== 1 ? "s" : ""} ·{" "}
                           {attachmentCount} attachment{attachmentCount !== 1 ? "s" : ""} ·{" "}
                           {phase.status.replace("_", " ")}
@@ -827,10 +929,14 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
               </ReviewSection>
 
               <ReviewSection title="Team & Timeline">
-                <ReviewRow label="Owner" value={team.projectOwner} />
+                <ReviewRow label="Owner" value={syncedTeamPreview.projectOwner} />
                 <ReviewRow
                   label="Team"
-                  value={`${team.teamMembers.length} member(s) selected`}
+                  value={
+                    syncedTeamPreview.teamMembers.length
+                      ? syncedTeamPreview.teamMembers.map((member) => member.name).join(", ")
+                      : "None"
+                  }
                 />
                 <ReviewRow label="Sprint" value={team.sprintLength.replace("_", " ")} />
                 <ReviewRow label="Timeline" value={team.timelineType} />

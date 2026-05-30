@@ -1,11 +1,27 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { createCalendarEvent, mergeCalendarEvent } from "../data/calendarData";
+import {
+  createCalendarEvent,
+  mergeCalendarEvent,
+  normalizeCalendarEvent,
+} from "../data/calendarData";
 import { loadCalendarEvents, saveCalendarEvents } from "../lib/calendarStorage";
 
 const CalendarEventsContext = createContext(null);
 
 export function CalendarEventsProvider({ children }) {
   const [events, setEvents] = useState(() => loadCalendarEvents());
+
+  useEffect(() => {
+    setEvents((prev) => {
+      const next = prev.map(normalizeCalendarEvent);
+      const changed = next.some(
+        (event, index) =>
+          JSON.stringify(event.preTasks) !== JSON.stringify(prev[index]?.preTasks) ||
+          event.preTask !== prev[index]?.preTask
+      );
+      return changed ? next : prev;
+    });
+  }, []);
 
   useEffect(() => {
     saveCalendarEvents(events);

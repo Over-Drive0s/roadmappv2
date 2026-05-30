@@ -1,5 +1,9 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
-import { createTask, mergeTask } from "../data/tasksData";
+import { createTask, mergeTask, normalizeTask } from "../data/tasksData";
+import {
+  shouldReplaceTasksFromCalendarSync,
+  syncCalendarEventsIntoTasks,
+} from "../lib/calendarTasksSync";
 import { removeAttachmentFromTask } from "../lib/fileRemoval";
 import { loadTasks, saveTasks } from "../lib/tasksStorage";
 
@@ -7,6 +11,18 @@ const TasksContext = createContext(null);
 
 export function TasksProvider({ children }) {
   const [tasks, setTasks] = useState(() => loadTasks());
+
+  useEffect(() => {
+    setTasks((prev) => {
+      const next = prev.map(normalizeTask);
+      const changed = next.some(
+        (task, index) =>
+          task.status !== prev[index]?.status ||
+          JSON.stringify(task.preTasks) !== JSON.stringify(prev[index]?.preTasks)
+      );
+      return changed ? next : prev;
+    });
+  }, []);
 
   useEffect(() => {
     saveTasks(tasks);
@@ -34,6 +50,13 @@ export function TasksProvider({ children }) {
     setTasks((prev) => prev.filter((task) => task.id !== id));
   }, []);
 
+  const syncCalendarEvents = useCallback((events) => {
+    setTasks((prev) => {
+      const next = syncCalendarEventsIntoTasks(prev, events);
+      return shouldReplaceTasksFromCalendarSync(prev, next) ? next : prev;
+    });
+  }, []);
+
   const removeAttachmentByFileId = useCallback((fileId) => {
     setTasks((prev) =>
       prev.map((task) => removeAttachmentFromTask(task, fileId))
@@ -41,8 +64,15 @@ export function TasksProvider({ children }) {
   }, []);
 
   const value = useMemo(
-    () => ({ tasks, addTask, updateTask, deleteTask, removeAttachmentByFileId }),
-    [tasks, addTask, updateTask, deleteTask, removeAttachmentByFileId]
+    () => ({
+      tasks,
+      addTask,
+      updateTask,
+      deleteTask,
+      syncCalendarEvents,
+      removeAttachmentByFileId,
+    }),
+    [tasks, addTask, updateTask, deleteTask, syncCalendarEvents, removeAttachmentByFileId]
   );
 
   return <TasksContext.Provider value={value}>{children}</TasksContext.Provider>;

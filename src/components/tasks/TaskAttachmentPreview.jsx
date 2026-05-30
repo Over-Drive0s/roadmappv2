@@ -1,6 +1,8 @@
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { Download, Eye, FileText, X } from "lucide-react";
 import { canPreviewAttachment } from "../ui/AttachmentInput";
+import { lockBodyScroll } from "../../lib/modalBodyLock";
 
 function cn(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -159,78 +161,86 @@ export default function TaskAttachmentPreviewModal({ attachment, open, onClose }
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, onClose]);
 
+  useEffect(() => {
+    if (!open) return undefined;
+    return lockBodyScroll();
+  }, [open]);
+
   if (!open || !attachment) return null;
 
   const isImage = attachment.type?.startsWith("image/") && attachment.dataUrl;
   const isPdf = attachment.type === "application/pdf" && attachment.dataUrl;
 
-  return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
+  return createPortal(
+    <div className="fixed inset-0 z-[200] overflow-y-auto">
       <button
         type="button"
         aria-label="Close preview"
-        className="absolute inset-0 bg-slate-900/55 backdrop-blur-sm"
+        className="fixed inset-0 bg-slate-900/55 backdrop-blur-sm"
         onClick={onClose}
       />
-      <div
-        role="dialog"
-        aria-labelledby="attachment-preview-title"
-        className="relative z-10 flex max-h-[min(90vh,720px)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
-      >
-        <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
-          <div className="min-w-0">
-            <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
-              Attachment preview
-            </p>
-            <h3 id="attachment-preview-title" className="truncate text-sm font-semibold text-slate-900">
-              {attachment.name}
-            </h3>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {attachment.dataUrl ? (
-              <a
-                href={attachment.dataUrl}
-                download={attachment.name}
-                className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-              >
-                <Download className="h-3.5 w-3.5" />
-                Download
-              </a>
-            ) : null}
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
-
-        <div className="min-h-0 flex-1 overflow-auto bg-slate-50 p-4">
-          {isImage ? (
-            <img
-              src={attachment.dataUrl}
-              alt={attachment.name}
-              className="mx-auto max-h-[min(70vh,640px)] w-auto max-w-full rounded-lg border border-slate-200 bg-white object-contain shadow-sm"
-            />
-          ) : isPdf ? (
-            <iframe
-              title={attachment.name}
-              src={attachment.dataUrl}
-              className="h-[min(70vh,640px)] w-full rounded-lg border border-slate-200 bg-white"
-            />
-          ) : (
-            <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white px-6 py-16 text-center">
-              <FileText className="mb-3 h-10 w-10 text-slate-300" />
-              <p className="text-sm font-semibold text-slate-700">Preview not available</p>
-              <p className="mt-1 max-w-sm text-xs text-slate-500">
-                This file type cannot be previewed here. Use Download to open it locally.
+      <div className="flex min-h-full items-center justify-center p-4 sm:p-6">
+        <div
+          role="dialog"
+          aria-labelledby="attachment-preview-title"
+          className="relative z-10 flex max-h-[min(calc(100vh-2rem),720px)] w-full max-w-3xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-2xl"
+        >
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
+            <div className="min-w-0">
+              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
+                Attachment preview
               </p>
+              <h3 id="attachment-preview-title" className="truncate text-sm font-semibold text-slate-900">
+                {attachment.name}
+              </h3>
             </div>
-          )}
+            <div className="flex shrink-0 items-center gap-2">
+              {attachment.dataUrl ? (
+                <a
+                  href={attachment.dataUrl}
+                  download={attachment.name}
+                  className="inline-flex items-center gap-1 rounded-lg border border-slate-200 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+                >
+                  <Download className="h-3.5 w-3.5" />
+                  Download
+                </a>
+              ) : null}
+              <button
+                type="button"
+                onClick={onClose}
+                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-auto bg-slate-50 p-4">
+            {isImage ? (
+              <img
+                src={attachment.dataUrl}
+                alt={attachment.name}
+                className="mx-auto max-h-full w-auto max-w-full rounded-lg border border-slate-200 bg-white object-contain shadow-sm"
+              />
+            ) : isPdf ? (
+              <iframe
+                title={attachment.name}
+                src={attachment.dataUrl}
+                className="h-[calc(min(100vh-2rem,720px)-4.5rem)] min-h-[360px] w-full rounded-lg border border-slate-200 bg-white"
+              />
+            ) : (
+              <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white px-6 py-16 text-center">
+                <FileText className="mb-3 h-10 w-10 text-slate-300" />
+                <p className="text-sm font-semibold text-slate-700">Preview not available</p>
+                <p className="mt-1 max-w-sm text-xs text-slate-500">
+                  This file type cannot be previewed here. Use Download to open it locally.
+                </p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -70,8 +70,8 @@ body {
 .app-dashboard-card {
   position: relative;
   isolation: isolate;
-  width: 1560px;
-  height: 1060px;
+  width: 1440px;
+  height: 920px;
   flex: none;
   overflow: hidden;
   border-radius: 1.25rem;
@@ -105,10 +105,6 @@ button:disabled,
 }
 
 .dashboard-widget-scroll {
-  overflow: hidden;
-}
-
-.group:hover .dashboard-widget-scroll {
   overflow-x: hidden;
   overflow-y: auto;
   overscroll-behavior: contain;
@@ -116,7 +112,7 @@ button:disabled,
   -ms-overflow-style: none;
 }
 
-.group:hover .dashboard-widget-scroll::-webkit-scrollbar {
+.dashboard-widget-scroll::-webkit-scrollbar {
   display: none;
   width: 0;
   height: 0;

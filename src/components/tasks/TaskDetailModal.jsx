@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   CalendarDays,
+  Check,
   Flag,
   FolderKanban,
   Pencil,
@@ -13,11 +15,14 @@ import AttachmentInput from "../ui/AttachmentInput";
 import {
   PRIORITY_BADGE_STYLES,
   TASK_STATUS_OPTIONS,
+  canCompleteTask,
   getTaskDueDisplay,
+  getTaskPreTasks,
 } from "../../data/tasksData";
 import TaskAttachmentPreviewModal from "./TaskAttachmentPreview";
 import PreTasksDisplay from "./PreTasksDisplay";
 import TaskDreamboardIcon from "./TaskDreamboardIcon";
+import { lockBodyScroll } from "../../lib/modalBodyLock";
 
 function cn(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -77,6 +82,8 @@ export default function TaskDetailModal({
   onEdit,
   onDelete,
   onAttachmentsChange,
+  onPreTaskToggle,
+  onToggleComplete,
 }) {
   const [previewAttachment, setPreviewAttachment] = useState(null);
 
@@ -98,6 +105,11 @@ export default function TaskDetailModal({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, onClose, previewAttachment]);
 
+  useEffect(() => {
+    if (!open) return undefined;
+    return lockBodyScroll();
+  }, [open]);
+
   if (!open || !task) return null;
 
   const statusLabel = isDone
@@ -105,23 +117,26 @@ export default function TaskDetailModal({
     : TASK_STATUS_OPTIONS.find((s) => s.id === task.status)?.label ?? task.status;
 
   const attachments = task.attachments ?? [];
-  const preTaskItems = task.preTasks?.length ? task.preTasks : task.preTask ? [task.preTask] : [];
+  const preTaskItems = getTaskPreTasks(task);
   const dueLabel = getTaskDueDisplay(task);
+  const taskCanComplete = canCompleteTask(task);
 
   return (
     <>
-      <div className="fixed inset-0 z-[110] flex items-center justify-center p-4 sm:p-6">
-        <button
-          type="button"
-          aria-label="Close"
-          className="absolute inset-0 bg-slate-900/50 backdrop-blur-sm"
-          onClick={onClose}
-        />
-        <div
-          role="dialog"
-          aria-labelledby="task-detail-title"
-          className="relative z-10 flex max-h-[min(92vh,860px)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/50 shadow-2xl"
-        >
+      {createPortal(
+        <div className="fixed inset-0 z-[110] overflow-y-auto">
+          <button
+            type="button"
+            aria-label="Close"
+            className="fixed inset-0 bg-slate-900/50 backdrop-blur-sm"
+            onClick={onClose}
+          />
+          <div className="flex min-h-full items-center justify-center p-4 sm:p-6">
+            <div
+              role="dialog"
+              aria-labelledby="task-detail-title"
+              className="relative z-10 flex max-h-[min(calc(100vh-2rem),860px)] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-200 bg-slate-50/50 shadow-2xl"
+            >
           {/* Header */}
           <header
             className={cn("shrink-0 border-b bg-white", PANEL_X, "pb-5 pt-5")}
@@ -194,7 +209,12 @@ export default function TaskDetailModal({
 
                     {preTaskItems.length > 0 ? (
                       <div className="border-t border-slate-100">
-                        <PreTasksDisplay items={preTaskItems} embedded />
+                        <PreTasksDisplay
+                          preTasks={preTaskItems}
+                          embedded
+                          interactive
+                          onToggle={(preTaskId) => onPreTaskToggle?.(preTaskId)}
+                        />
                       </div>
                     ) : null}
                   </div>
@@ -234,11 +254,36 @@ export default function TaskDetailModal({
           {/* Footer */}
           <footer
             className={cn(
-              "flex shrink-0 gap-3 border-t border-slate-200 bg-white",
+              "flex shrink-0 flex-col gap-3 border-t border-slate-200 bg-white sm:flex-row",
               PANEL_X,
               "py-4"
             )}
           >
+            {onToggleComplete ? (
+              <button
+                type="button"
+                disabled={!isDone && !taskCanComplete}
+                title={
+                  !isDone && !taskCanComplete
+                    ? "Complete all pre-tasks first"
+                    : isDone
+                      ? "Mark task incomplete"
+                      : "Mark task complete"
+                }
+                onClick={() => onToggleComplete(task)}
+                className={cn(
+                  "inline-flex flex-1 items-center justify-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold shadow-sm transition",
+                  !isDone && !taskCanComplete
+                    ? "cursor-not-allowed border border-slate-200 bg-slate-50 text-slate-400"
+                    : isDone
+                      ? "border border-slate-200 bg-white text-slate-700 hover:border-slate-300 hover:bg-slate-50"
+                      : "border border-emerald-200 bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
+                )}
+              >
+                <Check className="h-4 w-4" />
+                {isDone ? "Mark incomplete" : "Mark complete"}
+              </button>
+            ) : null}
             <button
               type="button"
               onClick={() => {
@@ -264,8 +309,11 @@ export default function TaskDetailModal({
               Delete
             </button>
           </footer>
-        </div>
-      </div>
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       <TaskAttachmentPreviewModal
         attachment={previewAttachment}

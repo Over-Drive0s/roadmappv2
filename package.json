@@ -12,7 +12,8 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "electron:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
-    "electron:build": "npm run build && electron-builder --mac dmg"
+    "icons": "bash scripts/generate-mac-icon.sh",
+    "electron:build": "npm run build && npm run icons && electron-builder --mac dmg"
   },
   "build": {
     "appId": "os.overdrive.app",
@@ -29,10 +30,13 @@
     "mac": {
       "category": "public.app-category.productivity",
       "target": ["dmg"],
+      "icon": "build/icon.icns",
       "identity": null
     },
     "dmg": {
-      "title": "Over Drive OS"
+      "title": "Over Drive OS",
+      "icon": "build/icon.icns",
+      "iconSize": 160
     }
   },
   "dependencies": {

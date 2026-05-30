@@ -3,12 +3,20 @@ import Select from "../ui/Select";
 import Textarea from "../ui/Textarea";
 import AttachmentInput from "../ui/AttachmentInput";
 import PhaseTaskCard from "./PhaseTaskCard";
+import PhaseMemberSelect from "./PhaseMemberSelect";
 import { emptyTask } from "../../lib/projectUtils";
 import { onboardingFieldVariant } from "./onboardingTheme";
 
 const FIELD = onboardingFieldVariant;
 
-export default function PhaseCard({ phase, data, onChange, projectName = "Project" }) {
+export default function PhaseCard({
+  phase,
+  data,
+  onChange,
+  projectName = "Project",
+  members = [],
+  workloadByMemberId = {},
+}) {
   const update = (field, value) => onChange({ ...data, [field]: value });
   const tasks = data.tasks ?? [];
 
@@ -53,6 +61,14 @@ export default function PhaseCard({ phase, data, onChange, projectName = "Projec
           onChange={(e) => update("objective", e.target.value)}
           placeholder={`What should ${phase.title} achieve?`}
           rows={2}
+        />
+
+        <PhaseMemberSelect
+          id={`${phase.id}-assignee`}
+          members={members}
+          value={data.assignedMemberId ?? ""}
+          onChange={(memberId) => update("assignedMemberId", memberId)}
+          workloadByMemberId={workloadByMemberId}
         />
 
         <Select

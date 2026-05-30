@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
-import { CalendarPlus, ChevronDown, Clock, Pencil, X } from "lucide-react";
+import { CalendarPlus, ChevronDown, Clock, ListTodo, Pencil, Plus, X } from "lucide-react";
 import {
   CALENDAR_TYPE_FILTERS,
   EVENT_TYPE_LABELS,
   MONTH_NAMES,
+  getEventPreTasks,
 } from "../../data/calendarData";
 import { useWorkspaceSettings } from "../../context/WorkspaceSettingsContext";
 import {
@@ -50,7 +51,8 @@ export default function AddCalendarEventModal({
   const [projectId, setProjectId] = useState("");
   const [stageColor, setStageColor] = useState(PROJECT_STAGE_COLORS[0]);
   const [selectedTags, setSelectedTags] = useState([]);
-  const [preTask, setPreTask] = useState("");
+  const [preTasks, setPreTasks] = useState([]);
+  const [preTaskInput, setPreTaskInput] = useState("");
   const [eventDate, setEventDate] = useState(defaultDate);
   const [timePickerOpen, setTimePickerOpen] = useState(false);
   const [colorMenuOpen, setColorMenuOpen] = useState(false);
@@ -65,7 +67,8 @@ export default function AddCalendarEventModal({
       setProjectId(editingEvent.projectId ?? "");
       setStageColor(editingEvent.projectColor ?? PROJECT_STAGE_COLORS[0]);
       setSelectedTags(editingEvent.tags ?? []);
-      setPreTask(editingEvent.preTask ?? "");
+      setPreTasks(getEventPreTasks(editingEvent));
+      setPreTaskInput("");
       setEventDate(editingEvent.date ?? defaultDate);
       setTimePickerOpen(false);
       setColorMenuOpen(false);
@@ -78,7 +81,8 @@ export default function AddCalendarEventModal({
     setProjectId("");
     setStageColor(PROJECT_STAGE_COLORS[0]);
     setSelectedTags([]);
-    setPreTask("");
+    setPreTasks([]);
+    setPreTaskInput("");
     setEventDate(defaultDate);
     setTimePickerOpen(false);
     setColorMenuOpen(false);
@@ -133,6 +137,17 @@ export default function AddCalendarEventModal({
     );
   };
 
+  const addPreTask = (value) => {
+    const trimmed = value?.trim();
+    if (!trimmed || preTasks.includes(trimmed)) return;
+    setPreTasks((prev) => [...prev, trimmed]);
+    setPreTaskInput("");
+  };
+
+  const removePreTask = (index) => {
+    setPreTasks((prev) => prev.filter((_, i) => i !== index));
+  };
+
   const handleSubmit = (event) => {
     event.preventDefault();
     if (!title.trim()) return;
@@ -146,7 +161,7 @@ export default function AddCalendarEventModal({
       projectId: projectId || null,
       projectColor: stageColor,
       tags: selectedTags,
-      preTask: preTask.trim(),
+      preTasks,
     });
     onClose();
   };
@@ -338,7 +353,6 @@ export default function AddCalendarEventModal({
                 value={projectId}
                 onChange={(e) => {
                   setProjectId(e.target.value);
-                  setPreTask("");
                 }}
                 className={inputClassName}
               >
@@ -356,38 +370,80 @@ export default function AddCalendarEventModal({
               )}
             </div>
 
-            <div className="space-y-1.5">
-              <label htmlFor="event-pre-task" className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                Pre-Task
-              </label>
+            <div className="space-y-2">
+              <span className="flex items-center gap-1.5 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                <ListTodo className="h-3.5 w-3.5" />
+                Pre-Tasks
+              </span>
+
+              {preTasks.length > 0 ? (
+                <ul className="space-y-1.5">
+                  {preTasks.map((item, index) => (
+                    <li
+                      key={`${item}-${index}`}
+                      className="flex items-center justify-between gap-2 rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2"
+                    >
+                      <span className="min-w-0 flex-1 text-sm font-medium text-slate-800">{item}</span>
+                      <button
+                        type="button"
+                        onClick={() => removePreTask(index)}
+                        className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-white hover:text-red-600"
+                        aria-label={`Remove pre-task ${item}`}
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              ) : null}
+
+              <div className="flex gap-2">
+                <input
+                  id="event-pre-task-input"
+                  type="text"
+                  value={preTaskInput}
+                  onChange={(e) => setPreTaskInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      addPreTask(preTaskInput);
+                    }
+                  }}
+                  placeholder="Add a pre-task for this event"
+                  className={cn(inputClassName, "min-w-0 flex-1")}
+                />
+                <button
+                  type="button"
+                  onClick={() => addPreTask(preTaskInput)}
+                  disabled={!preTaskInput.trim()}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <Plus className="h-3.5 w-3.5" />
+                  Add
+                </button>
+              </div>
+
               {projectTaskOptions.length > 0 ? (
                 <select
-                  id="event-pre-task"
-                  value={preTask}
-                  onChange={(e) => setPreTask(e.target.value)}
+                  id="event-pre-task-from-project"
+                  defaultValue=""
+                  onChange={(e) => {
+                    if (e.target.value) {
+                      addPreTask(e.target.value);
+                      e.target.value = "";
+                    }
+                  }}
                   className={inputClassName}
                 >
-                  <option value="">Select -</option>
+                  <option value="">Add from project tasks…</option>
                   {projectTaskOptions.map((task) => (
                     <option key={task.id} value={task.label}>
                       {task.phaseTitle}: {task.label}
                     </option>
                   ))}
                 </select>
-              ) : (
-                <input
-                  id="event-pre-task"
-                  type="text"
-                  value={preTask}
-                  onChange={(e) => setPreTask(e.target.value)}
-                  placeholder={
-                    projectId
-                      ? "No open tasks in this project — enter a pre-task manually"
-                      : "Task to complete before this event"
-                  }
-                  className={inputClassName}
-                />
-              )}
+              ) : null}
+
               <p className="text-[11px] text-slate-500">
                 Work that should be finished before this event.
               </p>

@@ -1,9 +1,10 @@
-import { useEffect, useRef } from "react";
-import { Clock, Pencil, Trash2, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Check, Clock, ListTodo, Pencil, Trash2, X } from "lucide-react";
 import {
   EVENT_TYPE_COLORS,
   EVENT_TYPE_LABELS,
   MONTH_NAMES,
+  getEventPreTasks,
   getEventStageColor,
   parseEventDate,
 } from "../../data/calendarData";
@@ -13,6 +14,113 @@ function formatEventDateLabel(dateStr) {
   return `${MONTH_NAMES[month]} ${day}, ${year}`;
 }
 
+function EventPreTasksPanel({ preTasks, onChange }) {
+  const [editingIndex, setEditingIndex] = useState(null);
+  const [editValue, setEditValue] = useState("");
+
+  const startEdit = (index) => {
+    setEditingIndex(index);
+    setEditValue(preTasks[index] ?? "");
+  };
+
+  const cancelEdit = () => {
+    setEditingIndex(null);
+    setEditValue("");
+  };
+
+  const saveEdit = () => {
+    if (editingIndex === null) return;
+    const trimmed = editValue.trim();
+    if (!trimmed) {
+      onChange(preTasks.filter((_, i) => i !== editingIndex));
+    } else {
+      onChange(
+        preTasks.map((item, i) => (i === editingIndex ? trimmed : item))
+      );
+    }
+    cancelEdit();
+  };
+
+  const removeAt = (index) => {
+    onChange(preTasks.filter((_, i) => i !== index));
+    if (editingIndex === index) cancelEdit();
+  };
+
+  if (!preTasks.length) {
+    return (
+      <p className="mt-1 text-xs italic text-slate-400">No pre-tasks for this event</p>
+    );
+  }
+
+  return (
+    <ul className="mt-1.5 space-y-1.5">
+      {preTasks.map((item, index) => (
+        <li
+          key={`${item}-${index}`}
+          className="flex items-start gap-1.5 rounded-lg border border-slate-200 bg-slate-50/80 px-2 py-1.5"
+        >
+          {editingIndex === index ? (
+            <>
+              <input
+                type="text"
+                value={editValue}
+                onChange={(e) => setEditValue(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    saveEdit();
+                  }
+                  if (e.key === "Escape") cancelEdit();
+                }}
+                className="min-w-0 flex-1 rounded-md border border-sky-200 bg-white px-2 py-1 text-xs text-slate-800 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-100"
+                autoFocus
+              />
+              <button
+                type="button"
+                onClick={saveEdit}
+                className="shrink-0 rounded-md p-1 text-emerald-600 hover:bg-emerald-50"
+                aria-label="Save pre-task"
+              >
+                <Check className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={cancelEdit}
+                className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-slate-100"
+                aria-label="Cancel edit"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </>
+          ) : (
+            <>
+              <span className="min-w-0 flex-1 pt-0.5 text-xs font-medium leading-snug text-slate-700">
+                {item}
+              </span>
+              <button
+                type="button"
+                onClick={() => startEdit(index)}
+                className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-white hover:text-sky-700"
+                aria-label={`Edit pre-task ${item}`}
+              >
+                <Pencil className="h-3.5 w-3.5" />
+              </button>
+              <button
+                type="button"
+                onClick={() => removeAt(index)}
+                className="shrink-0 rounded-md p-1 text-slate-400 hover:bg-white hover:text-red-600"
+                aria-label={`Delete pre-task ${item}`}
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </>
+          )}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export default function CalendarEventDetailPopover({
   event,
   anchorRect,
@@ -20,6 +128,7 @@ export default function CalendarEventDetailPopover({
   onClose,
   onEdit,
   onDelete,
+  onPreTasksChange,
 }) {
   const popoverRef = useRef(null);
 
@@ -50,11 +159,12 @@ export default function CalendarEventDetailPopover({
   if (!open || !event) return null;
 
   const stageColor = getEventStageColor(event);
+  const preTasks = getEventPreTasks(event);
   const popoverWidth = 288;
   const style = anchorRect
     ? {
         position: "fixed",
-        top: Math.min(Math.max(8, anchorRect.top), window.innerHeight - 320),
+        top: Math.min(Math.max(8, anchorRect.top), window.innerHeight - 360),
         left: Math.max(
           8,
           Math.min(anchorRect.left - popoverWidth - 8, window.innerWidth - popoverWidth - 8)
@@ -121,7 +231,7 @@ export default function CalendarEventDetailPopover({
           </div>
         </div>
 
-        <div className="max-h-[240px] space-y-3 overflow-y-auto p-4 text-sm">
+        <div className="max-h-[280px] space-y-3 overflow-y-auto p-4 text-sm">
           {event.description ? (
             <div>
               <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">
@@ -142,12 +252,19 @@ export default function CalendarEventDetailPopover({
             </div>
           ) : null}
 
-          {event.preTask ? (
-            <div>
-              <p className="text-[10px] font-bold uppercase tracking-wide text-slate-400">Pre-Task</p>
-              <p className="mt-1 font-medium text-slate-700">{event.preTask}</p>
-            </div>
-          ) : null}
+          <div>
+            <p className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wide text-slate-400">
+              <ListTodo className="h-3 w-3" />
+              Pre-Tasks
+              {preTasks.length > 0 ? (
+                <span className="font-semibold text-sky-600">({preTasks.length})</span>
+              ) : null}
+            </p>
+            <EventPreTasksPanel
+              preTasks={preTasks}
+              onChange={(next) => onPreTasksChange?.(event, next)}
+            />
+          </div>
 
           {event.tags?.length > 0 ? (
             <div>

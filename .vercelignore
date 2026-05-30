@@ -1,0 +1,17 @@
+node_modules
+dist
+dist-electron
+release
+mac
+mac-arm64
+dmg-staging
+*.dmg
+*.blockmap
+electron
+builder-debug.yml
+bins/**/*
+!bins/**/.gitkeep
+!bins/README.md
+new project template
+roadmappexp.png
+.git

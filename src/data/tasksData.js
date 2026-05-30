@@ -74,6 +74,169 @@ export function findTaskAssigneeId(assignee, assignees = TASK_ASSIGNEES) {
   return assignees.find((m) => m.name === assignee.name)?.id ?? assignees[0]?.id ?? "enis";
 }
 
+export function createPreTask(title) {
+  const trimmed = title?.trim() ?? "";
+  return {
+    id: `pt-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+    title: trimmed,
+    completed: false,
+  };
+}
+
+export function normalizePreTaskItem(item, index = 0) {
+  if (typeof item === "string") {
+    const trimmed = item.trim();
+    if (!trimmed) return null;
+    const slug = trimmed.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    return {
+      id: `pt-legacy-${index}-${slug}`,
+      title: trimmed,
+      completed: false,
+    };
+  }
+  if (item && typeof item === "object") {
+    const title = (item.title ?? item.label ?? "").trim();
+    if (!title) return null;
+    return {
+      id: item.id ?? `pt-legacy-${index}`,
+      title,
+      completed: Boolean(item.completed),
+    };
+  }
+  return null;
+}
+
+export function getTaskPreTasks(task) {
+  if (!task) return [];
+  if (Array.isArray(task.preTasks) && task.preTasks.length > 0) {
+    return task.preTasks.map(normalizePreTaskItem).filter(Boolean);
+  }
+  if (task.preTask?.trim()) {
+    return [createPreTask(task.preTask)];
+  }
+  return [];
+}
+
+export function preTasksFromTitles(titles = []) {
+  return titles.map((title) => title?.trim()).filter(Boolean).map(createPreTask);
+}
+
+export function mergePreTasksFromTitles(existingPreTasks, titles = []) {
+  const normalized = getTaskPreTasks({ preTasks: existingPreTasks });
+  const byTitle = new Map(normalized.map((item) => [item.title.toLowerCase(), item]));
+  return titles
+    .map((title) => title?.trim())
+    .filter(Boolean)
+    .map((title) => {
+      const match = byTitle.get(title.toLowerCase());
+      return match ? { ...match, title } : createPreTask(title);
+    });
+}
+
+function resolvePreTasks(existing, fields) {
+  if (fields.preTasks === undefined) return getTaskPreTasks(existing);
+  if (!Array.isArray(fields.preTasks)) return getTaskPreTasks(existing);
+
+  const hasStructuredItems = fields.preTasks.some(
+    (item) => item && typeof item === "object" && ("completed" in item || "id" in item)
+  );
+  if (hasStructuredItems) {
+    return fields.preTasks.map(normalizePreTaskItem).filter(Boolean);
+  }
+
+  return mergePreTasksFromTitles(existing.preTasks ?? [], fields.preTasks);
+}
+
+export function getPreTaskProgress(preTasks = []) {
+  const items = Array.isArray(preTasks)
+    ? preTasks.every((item) => typeof item === "object")
+      ? preTasks.map(normalizePreTaskItem).filter(Boolean)
+      : getTaskPreTasks({ preTasks })
+    : [];
+
+  const total = items.length;
+  const completed = items.filter((item) => item.completed).length;
+  const percent = total === 0 ? 100 : Math.round((completed / total) * 100);
+
+  return {
+    total,
+    completed,
+    percent,
+    allComplete: total === 0 || completed === total,
+  };
+}
+
+export function canCompleteTask(task) {
+  return getPreTaskProgress(getTaskPreTasks(task)).allComplete;
+}
+
+export function isTaskComplete(task) {
+  return Boolean(task?.completed) || task?.status === "done";
+}
+
+export function togglePreTaskInList(preTasks, preTaskId) {
+  return getTaskPreTasks({ preTasks }).map((item) =>
+    item.id === preTaskId ? { ...item, completed: !item.completed } : item
+  );
+}
+
+/** Derive task status from pre-task progress when appropriate. */
+export function resolveTaskStatusFromPreTasks(task, preTasks, { toggledOn = false, toggledOff = false } = {}) {
+  const progress = getPreTaskProgress(preTasks);
+  const currentStatus = task.status ?? "todo";
+
+  if (isTaskComplete(task)) {
+    return currentStatus;
+  }
+
+  if (progress.completed > 0 && (currentStatus === "todo" || !task.status)) {
+    return "in_progress";
+  }
+
+  if (toggledOff && progress.completed === 0 && currentStatus === "in_progress") {
+    return "todo";
+  }
+
+  if (toggledOn && progress.completed === 0 && currentStatus === "in_progress") {
+    return "todo";
+  }
+
+  return currentStatus;
+}
+
+/** Status + completion updates when a pre-task checkbox is toggled. */
+export function getPreTaskToggleUpdates(task, preTaskId) {
+  const previousPreTasks = getTaskPreTasks(task);
+  const preTasks = togglePreTaskInList(previousPreTasks, preTaskId);
+  const prevItem = previousPreTasks.find((item) => item.id === preTaskId);
+  const nextItem = preTasks.find((item) => item.id === preTaskId);
+  const toggledOn = Boolean(prevItem && nextItem && !prevItem.completed && nextItem.completed);
+  const toggledOff = Boolean(prevItem && nextItem && prevItem.completed && !nextItem.completed);
+  const fields = { preTasks };
+
+  fields.status = resolveTaskStatusFromPreTasks(task, preTasks, { toggledOn, toggledOff });
+
+  if (isTaskComplete(task) && !getPreTaskProgress(preTasks).allComplete) {
+    fields.completed = false;
+    if (fields.status === "done") {
+      fields.status = "in_progress";
+    }
+  }
+
+  return fields;
+}
+
+export function normalizeTask(task) {
+  const preTasks = getTaskPreTasks(task);
+  const status = resolveTaskStatusFromPreTasks(task, preTasks);
+
+  return {
+    ...task,
+    preTasks,
+    status,
+  };
+}
+
 export function createTask(fields) {
   return {
     id: `t-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
@@ -87,9 +250,7 @@ export function createTask(fields) {
     priority: fields.priority ?? "medium",
     status: fields.status ?? "todo",
     assignee: resolveAssignee(fields),
-    preTasks: Array.isArray(fields.preTasks)
-      ? fields.preTasks.map((t) => t?.trim()).filter(Boolean)
-      : [],
+    preTasks: preTasksFromTitles(Array.isArray(fields.preTasks) ? fields.preTasks : []),
     attachments: Array.isArray(fields.attachments) ? fields.attachments : [],
     completed: false,
     dreamboardNoteId: fields.dreamboardNoteId ?? null,
@@ -106,6 +267,14 @@ export function mergeTask(existing, fields) {
   const dueTime =
     fields.dueTime !== undefined ? fields.dueTime.trim() : (existing.dueTime ?? "");
 
+  const preTasks = resolvePreTasks(existing, fields);
+  const status =
+    fields.status !== undefined
+      ? fields.status
+      : fields.preTasks !== undefined
+        ? resolveTaskStatusFromPreTasks(existing, preTasks)
+        : existing.status;
+
   return {
     ...existing,
     title: fields.title?.trim() || existing.title,
@@ -117,11 +286,9 @@ export function mergeTask(existing, fields) {
     dueDateIso,
     dueTime,
     priority: fields.priority ?? existing.priority,
-    status: fields.status ?? existing.status,
+    status,
     assignee,
-    preTasks: Array.isArray(fields.preTasks)
-      ? fields.preTasks.map((t) => t?.trim()).filter(Boolean)
-      : (existing.preTasks ?? []),
+    preTasks,
     attachments: Array.isArray(fields.attachments)
       ? fields.attachments
       : (existing.attachments ?? []),
@@ -129,6 +296,7 @@ export function mergeTask(existing, fields) {
       fields.dreamboardNoteId !== undefined
         ? fields.dreamboardNoteId
         : (existing.dreamboardNoteId ?? null),
+    completed: fields.completed !== undefined ? fields.completed : existing.completed,
   };
 }
 

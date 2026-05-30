@@ -9,6 +9,31 @@ export const PHASE_DEFS = [
 
 export const PHASE_IDS = PHASE_DEFS.map((p) => p.id);
 
+export function syncTeamFromPhaseAssignees(phases, members, team = {}) {
+  const assigneeIds = [
+    ...new Set(PHASE_DEFS.map((def) => phases[def.id]?.assignedMemberId).filter(Boolean)),
+  ];
+
+  const teamMembers = assigneeIds
+    .map((id) => members.find((member) => member.id === id))
+    .filter(Boolean);
+
+  const ownerMember = members.find(
+    (member) => member.id === phases.foundation?.assignedMemberId
+  );
+
+  return {
+    ...team,
+    teamMembers,
+    projectOwner: ownerMember?.name ?? team.projectOwner ?? "",
+  };
+}
+
+export function getPhaseAssigneeName(phase, members) {
+  if (!phase?.assignedMemberId) return null;
+  return members.find((member) => member.id === phase.assignedMemberId)?.name ?? null;
+}
+
 export const PROJECT_PRIORITY_ORDER = {
   critical: 0,
   high: 1,
@@ -248,6 +273,7 @@ export function emptyPhase() {
     timerManuallyPaused: false,
     jobSessionActive: false,
     activeTaskId: null,
+    assignedMemberId: "",
   };
 }
 
@@ -367,6 +393,7 @@ export function syncPhaseFromTasks(phase) {
     timerManuallyPaused: phase.timerManuallyPaused ?? false,
     jobSessionActive: phase.jobSessionActive ?? false,
     activeTaskId: phase.activeTaskId ?? null,
+    assignedMemberId: phase.assignedMemberId ?? "",
   };
 
   return repairPhaseTimers(result);
@@ -521,6 +548,10 @@ export function normalizeProject(project) {
   const tasksComplete = isProjectTasksComplete({ ...project, phases });
   const status = tasksComplete ? "completed" : "active";
 
+  if (tasksComplete) {
+    phases = stopAllProjectPhaseTimers(phases);
+  }
+
   let timelineStartedAt = project.timelineStartedAt ?? null;
   let timelineCompletedAt = project.timelineCompletedAt ?? null;
 
@@ -637,6 +668,21 @@ function stopAllPhaseTimers(phase, now = Date.now()) {
   );
 }
 
+function stopAllProjectPhaseTimers(phases, now = Date.now()) {
+  return PHASE_IDS.reduce((acc, id) => {
+    acc[id] = stopAllPhaseTimers(
+      { ...phases[id], activeTaskId: null, jobSessionActive: false },
+      now
+    );
+    return acc;
+  }, {});
+}
+
+function phaseAllTasksComplete(phase) {
+  const tasks = phase?.tasks ?? [];
+  return tasks.length > 0 && tasks.every((task) => task.completed);
+}
+
 function phaseClockRunning(phase) {
   return !!phase.timerStartedAt && !phase.timerStopped;
 }
@@ -667,8 +713,15 @@ function repairPhaseTimers(phase, now = Date.now()) {
     return phase;
   }
 
+  const tasks = phase.tasks ?? [];
+  if (phase.status === "completed" || phaseAllTasksComplete(phase)) {
+    return stopAllPhaseTimers(
+      { ...phase, activeTaskId: null, jobSessionActive: false },
+      now
+    );
+  }
+
   let result = { ...phase };
-  const tasks = result.tasks ?? [];
   const hasRunningTask = tasks.some((task) => taskTimerIsRunning(task));
   const activeTask = tasks.find((task) => task.id === result.activeTaskId && !task.completed);
   const shouldRunClock = phaseHadTimerActivity(result);
@@ -699,8 +752,18 @@ function repairPhaseTimers(phase, now = Date.now()) {
     return result;
   }
 
-  if (!hasRunningTask && !result.timerStartedAt) {
-    result = resumePhaseTimer(result, now);
+  if (!hasRunningTask && !activeTask) {
+    if (tasks.length === 0 && result.jobSessionActive && result.status === "in_progress") {
+      if (!result.timerStartedAt && !result.timerStopped) {
+        result = resumePhaseTimer(result, now);
+      }
+      return result;
+    }
+
+    if (tasks.length > 0) {
+      result = pausePhaseTimer(result, now);
+      result = { ...result, timerStopped: true };
+    }
   }
 
   return result;
@@ -826,6 +889,7 @@ export function startProjectPhaseTask(project, phaseId, taskId, now = Date.now()
     jobSessionActive: true,
     timerPausedByInProg: false,
     timerManuallyPaused: false,
+    timerStopped: false,
   });
 
   let timelineStartedAt = project.timelineStartedAt ?? null;
@@ -881,11 +945,12 @@ export function toggleProjectTask(project, phaseId, taskId, now = Date.now()) {
   });
 
   phases[phaseId] = syncPhaseFromTasks({
-    ...phase,
+    ...pausePhaseTimer(phase, now),
     activeTaskId,
     tasks: updatedTasks,
     status: phase.status === "on_hold" ? "on_hold" : "in_progress",
     timerPausedByInProg: false,
+    timerStopped: nextCompleted && activeTaskId === null,
   });
   let updated = normalizeProject({ ...project, phases });
   const updatedPhase = ensurePhases(updated.phases)[phaseId];
@@ -893,12 +958,16 @@ export function toggleProjectTask(project, phaseId, taskId, now = Date.now()) {
     (updatedPhase.tasks ?? []).length > 0 &&
     (updatedPhase.tasks ?? []).every((item) => item.completed);
   if (allDone) {
-    phases[phaseId] = syncPhaseFromTasks({
-      ...updatedPhase,
-      activeTaskId: null,
-      jobSessionActive: true,
-      timerStopped: false,
-    });
+    phases[phaseId] = syncPhaseFromTasks(
+      stopAllPhaseTimers(
+        {
+          ...updatedPhase,
+          activeTaskId: null,
+          jobSessionActive: false,
+        },
+        now
+      )
+    );
     updated = normalizeProject({ ...project, phases });
   }
   return updated;
@@ -1140,18 +1209,14 @@ export function getProjectElapsedBreakdown(project, now = Date.now(), phasesInpu
 
 export function phaseHasActiveElapsedClock(phase) {
   if (!phase || phase.status === "on_hold" || phase.timerManuallyPaused) return false;
+  if (phase.status === "completed" || phaseAllTasksComplete(phase)) return false;
   if ((phase.tasks ?? []).some((task) => taskTimerIsRunning(task))) return true;
   if (phase.timerStartedAt && !phase.timerStopped) return true;
-  if (
-    phase.jobSessionActive &&
-    (phase.status === "in_progress" || phase.status === "completed")
-  ) {
-    return true;
-  }
   return false;
 }
 
 export function projectTimelineClockActive(project) {
+  if (isProjectComplete(project)) return false;
   return !!project.timelineStartedAt && !isProjectOnHold(project);
 }
 
@@ -1211,14 +1276,19 @@ export function setProjectPhaseStatus(project, phaseId, status) {
       }
     } else {
       const completedTasks = completeTasksWithTimestamps(tasks, now);
-      phase = syncPhaseFromTasks({
-        ...phase,
-        tasks: completedTasks,
-        activeTaskId: null,
-        status: "completed",
-        timerPausedByInProg: false,
-        jobSessionActive: true,
-      });
+      phase = syncPhaseFromTasks(
+        stopAllPhaseTimers(
+          {
+            ...phase,
+            tasks: completedTasks,
+            activeTaskId: null,
+            status: "completed",
+            timerPausedByInProg: false,
+            jobSessionActive: false,
+          },
+          now
+        )
+      );
       if (!tasks.length) {
         phase = { ...phase, completion: 100, status: "completed" };
       }
@@ -1556,12 +1626,18 @@ export function advanceProjectPhase(project) {
 }
 
 export function completeProject(project) {
+  const now = Date.now();
   const phases = PHASE_IDS.reduce((acc, id) => {
-    acc[id] = syncPhaseStatus({
-      ...ensurePhases(project.phases)[id],
-      completion: 100,
-      status: "completed",
-    });
+    acc[id] = stopAllPhaseTimers(
+      syncPhaseStatus({
+        ...ensurePhases(project.phases)[id],
+        completion: 100,
+        status: "completed",
+        activeTaskId: null,
+        jobSessionActive: false,
+      }),
+      now
+    );
     return acc;
   }, {});
 

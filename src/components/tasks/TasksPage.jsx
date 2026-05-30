@@ -13,8 +13,20 @@ import {
   User,
 } from "lucide-react";
 import { resolveAssetUrl } from "../../lib/assetUrl";
-import { PRIORITY_BADGE_STYLES, TASK_STATUS_FILTERS } from "../../data/tasksData";
+import {
+  PRIORITY_BADGE_STYLES,
+  TASK_STATUS_FILTERS,
+  canCompleteTask,
+  getPreTaskToggleUpdates,
+  getTaskPreTasks,
+  isTaskComplete,
+} from "../../data/tasksData";
 import { useTasks } from "../../context/TasksContext";
+import { useCalendarEvents } from "../../context/CalendarEventsContext";
+import {
+  isCalendarEventTask,
+  taskUpdateToCalendarEventFields,
+} from "../../lib/calendarTasksSync";
 import RoadmapProgressBar from "../roadmap/RoadmapProgressBar";
 import AddTaskModal from "./AddTaskModal";
 import TaskDetailModal from "./TaskDetailModal";
@@ -118,6 +130,7 @@ export default function TasksPage({
   onAddMountHandled,
 }) {
   const { tasks, addTask, updateTask, deleteTask } = useTasks();
+  const { updateEvent, deleteEvent } = useCalendarEvents();
   const [addOpen, setAddOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [detailTask, setDetailTask] = useState(null);
@@ -130,9 +143,6 @@ export default function TasksPage({
   const [filter, setFilter] = useState("all");
   const [projectFilter, setProjectFilter] = useState("all");
   const [search, setSearch] = useState("");
-  const [completedIds, setCompletedIds] = useState(
-    () => new Set(tasks.filter((t) => t.completed).map((t) => t.id))
-  );
 
   const projectNames = useMemo(
     () => [...new Set(tasks.map((t) => t.project).filter(Boolean))].sort(),
@@ -140,21 +150,21 @@ export default function TasksPage({
   );
 
   const stats = useMemo(() => {
-    const open = tasks.filter((t) => !completedIds.has(t.id));
+    const open = tasks.filter((t) => !isTaskComplete(t));
     return {
       total: tasks.length,
       todo: open.filter((t) => t.status === "todo").length,
       inProgress: open.filter((t) => t.status === "in_progress").length,
-      done: completedIds.size,
+      done: tasks.filter(isTaskComplete).length,
       mine: tasks.filter((t) => t.assignee.name === CURRENT_USER_NAME).length,
     };
-  }, [tasks, completedIds]);
+  }, [tasks]);
 
   const filteredTasks = useMemo(() => {
     const query = search.trim().toLowerCase();
 
     return tasks.filter((task) => {
-      const isDone = completedIds.has(task.id);
+      const isDone = isTaskComplete(task);
 
       if (projectFilter !== "all" && task.project !== projectFilter) return false;
 
@@ -163,14 +173,14 @@ export default function TasksPage({
         if (!haystack.includes(query)) return false;
       }
 
-      if (filter === "all") return true;
-      if (filter === "mine") return task.assignee.name === CURRENT_USER_NAME;
+      if (filter === "all") return !isDone;
+      if (filter === "mine") return task.assignee.name === CURRENT_USER_NAME && !isDone;
       if (filter === "done") return isDone;
       if (filter === "todo") return !isDone && task.status === "todo";
       if (filter === "in_progress") return !isDone && task.status === "in_progress";
       return true;
     });
-  }, [tasks, filter, projectFilter, search, completedIds]);
+  }, [tasks, filter, projectFilter, search]);
 
   const detailTaskLive = useMemo(
     () => (detailTask ? tasks.find((t) => t.id === detailTask.id) ?? detailTask : null),
@@ -179,21 +189,38 @@ export default function TasksPage({
 
   const toggleTask = (id, e) => {
     e?.stopPropagation();
-    setCompletedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+    const task = tasks.find((item) => item.id === id);
+    if (!task) return;
+
+    const isDone = isTaskComplete(task);
+    if (!isDone && !canCompleteTask(task)) {
+      setDetailTask(task);
+      return;
+    }
+
+    updateTask(id, {
+      completed: !isDone,
+      status: !isDone ? "done" : task.status === "done" ? "todo" : task.status,
     });
   };
 
-  const handleDeleteTask = (task) => {
-    deleteTask(task.id);
-    setCompletedIds((prev) => {
-      const next = new Set(prev);
-      next.delete(task.id);
-      return next;
+  const handleToggleComplete = (task) => {
+    const isDone = isTaskComplete(task);
+    if (!isDone && !canCompleteTask(task)) return;
+
+    updateTask(task.id, {
+      completed: !isDone,
+      status: !isDone ? "done" : task.status === "done" ? "todo" : task.status,
     });
+
+    if (!isDone) setDetailTask(null);
+  };
+
+  const handleDeleteTask = (task) => {
+    if (isCalendarEventTask(task)) {
+      deleteEvent(task.calendarEventId);
+    }
+    deleteTask(task.id);
     if (detailTask?.id === task.id) setDetailTask(null);
   };
 
@@ -223,7 +250,13 @@ export default function TasksPage({
           setAddOpen(false);
         }}
         onSubmit={(fields) => {
-          if (editingTask) updateTask(editingTask.id, fields);
+          if (editingTask) {
+            updateTask(editingTask.id, fields);
+            const calendarFields = taskUpdateToCalendarEventFields(fields, editingTask);
+            if (calendarFields) {
+              updateEvent(editingTask.calendarEventId, calendarFields);
+            }
+          }
           setEditingTask(null);
           setAddOpen(false);
         }}
@@ -233,7 +266,7 @@ export default function TasksPage({
       <TaskDetailModal
         task={detailTaskLive}
         open={Boolean(detailTaskLive)}
-        isDone={detailTaskLive ? completedIds.has(detailTaskLive.id) : false}
+        isDone={detailTaskLive ? isTaskComplete(detailTaskLive) : false}
         onClose={() => setDetailTask(null)}
         onEdit={handleEditTask}
         onDelete={handleDeleteTask}
@@ -242,6 +275,15 @@ export default function TasksPage({
           const updated = updateTask(detailTaskLive.id, { attachments });
           if (updated) setDetailTask(updated);
         }}
+        onPreTaskToggle={(preTaskId) => {
+          if (!detailTaskLive) return;
+          const updated = updateTask(
+            detailTaskLive.id,
+            getPreTaskToggleUpdates(detailTaskLive, preTaskId)
+          );
+          if (updated) setDetailTask(updated);
+        }}
+        onToggleComplete={handleToggleComplete}
       />
 
       <div className="mb-6 overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white via-white to-violet-50/40 p-6 shadow-sm">
@@ -382,7 +424,9 @@ export default function TasksPage({
 
             <ul className="divide-y divide-slate-100">
               {filteredTasks.map((task) => {
-                const isDone = completedIds.has(task.id);
+                const isDone = isTaskComplete(task);
+                const hasPreTasks = getTaskPreTasks(task).length > 0;
+                const canComplete = canCompleteTask(task);
                 const statusLabel = isDone
                   ? "Done"
                   : task.status === "in_progress"
@@ -410,12 +454,27 @@ export default function TasksPage({
                     <button
                       type="button"
                       onClick={(e) => toggleTask(task.id, e)}
-                      aria-label={isDone ? "Mark incomplete" : "Mark complete"}
+                      title={
+                        !isDone && hasPreTasks && !canComplete
+                          ? "Complete all pre-tasks first — opens task details"
+                          : isDone
+                            ? "Mark incomplete"
+                            : "Mark complete"
+                      }
+                      aria-label={
+                        !isDone && hasPreTasks && !canComplete
+                          ? "Complete all pre-tasks before marking this task done"
+                          : isDone
+                            ? "Mark incomplete"
+                            : "Mark complete"
+                      }
                       className={cn(
                         "flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 transition",
-                        isDone
-                          ? "border-emerald-500 bg-emerald-500 text-white"
-                          : "border-slate-300 hover:border-violet-400"
+                        !isDone && hasPreTasks && !canComplete
+                          ? "border-amber-300 bg-amber-50 hover:border-amber-400"
+                          : isDone
+                            ? "border-emerald-500 bg-emerald-500 text-white"
+                            : "border-slate-300 hover:border-violet-400"
                       )}
                     >
                       {isDone && <Check className="h-3.5 w-3.5" strokeWidth={3} />}

@@ -199,6 +199,7 @@ export default function CalendarPage({ projects = [] }) {
           selectedDayEvents={selectedDayEvents}
           onEdit={setEditingEvent}
           onDelete={handleDeleteEvent}
+          onPreTasksChange={(event, preTasks) => updateEvent(event.id, { preTasks })}
         />
       </div>
     </div>

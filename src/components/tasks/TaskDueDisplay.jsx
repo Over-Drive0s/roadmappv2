@@ -5,7 +5,7 @@ function cn(...classes) {
   return classes.filter(Boolean).join(" ");
 }
 
-export default function TaskDueDisplay({ task, className, compact = false }) {
+export default function TaskDueDisplay({ task, className, compact = false, dateOnly = false }) {
   const { date, time, full } = getTaskDueParts(task);
 
   if (!full) {
@@ -16,10 +16,14 @@ export default function TaskDueDisplay({ task, className, compact = false }) {
     );
   }
 
-  if (compact) {
+  if (compact || dateOnly) {
+    const label = dateOnly ? date || "—" : full;
     return (
-      <span className={cn("whitespace-nowrap text-[11px] text-slate-600", className)} title={full}>
-        {full}
+      <span
+        className={cn("block min-w-0 truncate whitespace-nowrap text-[11px] text-slate-600", className)}
+        title={full}
+      >
+        {label}
       </span>
     );
   }

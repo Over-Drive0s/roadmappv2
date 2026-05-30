@@ -2317,7 +2317,7 @@ export default function DreamboardPage() {
       el.focus();
       if (el.dataset.shapeTextScroll !== undefined) {
         syncShapeTextareaView(el);
-      } else {
+      } else if (el.dataset.stickyNoteScroll === undefined) {
         autoResizeTextarea(el);
       }
       pendingFocusRef.current = null;
@@ -2359,10 +2359,6 @@ export default function DreamboardPage() {
     );
   }, []);
 
-  const focusItemEditor = useCallback((id) => {
-    pendingFocusRef.current = id;
-  }, []);
-
   const addNote = useCallback(
     (x, y) => {
       const id = createId();
@@ -2380,13 +2376,23 @@ export default function DreamboardPage() {
         rotation: 0,
         zIndex: nextZRef.current,
       };
-      setItems((prev) => [...prev, item]);
-      selectSingleItem(id);
-      setEditingId(id);
-      focusItemEditor(id);
+
+      suppressNextClickRef.current = true;
+
+      flushSync(() => {
+        setItems((prev) => [...prev, item]);
+        setSelectedIds([id]);
+        setEditingId(id);
+      });
+
+      pendingFocusRef.current = id;
       setTool("select");
+
+      requestAnimationFrame(() => {
+        focusTextEditorNow(id);
+      });
     },
-    [stickyColor, focusItemEditor, selectSingleItem]
+    [stickyColor, focusTextEditorNow]
   );
 
   const addText = useCallback(
@@ -2761,6 +2767,18 @@ export default function DreamboardPage() {
     setEditingId(item.id);
     focusTextEditor(item.id);
   };
+
+  const beginNoteEditing = useCallback(
+    (item) => {
+      flushSync(() => {
+        selectSingleItem(item.id);
+        setEditingId(item.id);
+      });
+      pendingFocusRef.current = item.id;
+      requestAnimationFrame(() => focusTextEditorNow(item.id));
+    },
+    [focusTextEditorNow, selectSingleItem]
+  );
 
   const finishShapeEditing = useCallback(
     (id) => {
@@ -3835,7 +3853,7 @@ export default function DreamboardPage() {
   );
 
   return (
-    <div className="mx-auto flex h-full min-h-0 max-w-[1600px] flex-1 flex-col">
+    <div className="mx-auto flex max-w-[1600px] flex-col">
       <div className="mb-4 overflow-hidden rounded-2xl border border-slate-200/80 bg-white p-5 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -3843,9 +3861,6 @@ export default function DreamboardPage() {
               <Sparkles className="h-5 w-5" />
               Dreamboard
             </div>
-            <p className="mt-2 text-sm text-slate-600">
-              Whiteboard for ideas — scroll to zoom, drag to pan, ⌘+drag to select all in box, ⇧⌘+drag to add, ⌘] / ⌘[ to layer items.
-            </p>
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
@@ -3900,10 +3915,19 @@ export default function DreamboardPage() {
               <button
                 type="button"
                 onClick={removeSelectedItems}
-                className="inline-flex items-center gap-1.5 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs font-semibold text-red-700 transition hover:bg-red-100"
+                aria-label={
+                  selectedIds.length > 1
+                    ? `Delete ${selectedIds.length} selected items`
+                    : "Delete selected item"
+                }
+                title={
+                  selectedIds.length > 1
+                    ? `Delete ${selectedIds.length} selected items`
+                    : "Delete selected item"
+                }
+                className="inline-flex items-center justify-center rounded-xl border border-red-200 bg-red-50 p-2 text-red-700 transition hover:bg-red-100"
               >
                 <Trash2 className="h-3.5 w-3.5" />
-                Delete{selectedIds.length > 1 ? ` (${selectedIds.length})` : ""}
               </button>
             ) : null}
           </div>
@@ -3913,7 +3937,7 @@ export default function DreamboardPage() {
       <div
         ref={viewportRef}
         tabIndex={-1}
-        className="relative min-h-0 flex-1 overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm outline-none"
+        className="relative min-h-[calc(100vh-14rem)] overflow-hidden rounded-xl border border-slate-200 bg-slate-100 shadow-sm outline-none"
         style={{ cursor: boardCursor }}
         onPointerDownCapture={handleViewportPointerDownCapture}
         onPointerDown={handleBoardPointerDown}
@@ -4385,7 +4409,10 @@ export default function DreamboardPage() {
               }}
               onPointerDown={(event) => {
                 if (event.target.closest("button")) return;
-                if (editingId === item.id && event.target.closest("[data-editable]")) return;
+                if (event.target.closest("[data-editable]")) {
+                  if (!isEditing) beginNoteEditing(item);
+                  return;
+                }
                 startDrag(event, item);
               }}
               onContextMenu={(event) => openItemContextMenu(event, item)}
@@ -4396,8 +4423,7 @@ export default function DreamboardPage() {
                 isDragging={isItemDragging(item.id)}
                 onDoubleClick={(event) => {
                   event.stopPropagation();
-                  setEditingId(item.id);
-                  selectSingleItem(item.id);
+                  beginNoteEditing(item);
                 }}
                 header={
                   <div
@@ -4418,15 +4444,16 @@ export default function DreamboardPage() {
                 }
               >
                 <textarea
+                  ref={(node) => setTextEditorRef(item.id, node)}
                   data-editable
                   data-sticky-note-scroll
                   data-editing={isEditing ? "true" : undefined}
                   value={item.content}
-                  readOnly={!isEditing}
                   placeholder="Write your idea..."
                   onChange={(event) => handleNoteInput(event, item.id)}
-                  onMouseDown={(event) => {
-                    if (!isEditing) event.preventDefault();
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    if (!isEditing) beginNoteEditing(item);
                   }}
                   onFocus={() => {
                     selectSingleItem(item.id);

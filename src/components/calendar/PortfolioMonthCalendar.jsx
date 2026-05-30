@@ -9,6 +9,7 @@ import {
   WEEKDAYS,
   getDaysInMonth,
   getEventsForDay,
+  getEventPreTasks,
   getFirstDayOfMonth,
   getEventStageColor,
   groupEventsByDay,
@@ -74,9 +75,10 @@ export function EventAgendaItem({ event, onSelect, onEdit, onDelete }) {
           {event.description ? (
             <p className="mt-1 line-clamp-2 text-xs text-slate-500">{event.description}</p>
           ) : null}
-          {event.preTask ? (
+          {getEventPreTasks(event).length > 0 ? (
             <p className="mt-1 text-[11px] text-slate-500">
-              <span className="font-semibold text-slate-600">Pre-Task:</span> {event.preTask}
+              <span className="font-semibold text-slate-600">Pre-Tasks:</span>{" "}
+              {getEventPreTasks(event).join(" · ")}
             </p>
           ) : null}
           {event.tags?.length > 0 && (
@@ -194,7 +196,7 @@ export default function PortfolioMonthCalendar({
 
       <div
         className={cn(
-          "flex items-center justify-between border-b border-slate-100",
+          "flex shrink-0 items-center justify-between border-b border-slate-100",
           compact ? "px-4 py-3" : "px-5 py-4"
         )}
       >
@@ -233,7 +235,7 @@ export default function PortfolioMonthCalendar({
         </button>
       </div>
 
-      <div className={cn(compact ? "p-3 sm:p-4" : "p-4 sm:p-5")}>
+      <div className={cn(compact ? "min-h-0 flex-1 overflow-auto p-3 sm:p-4" : "p-4 sm:p-5")}>
         <div className={cn("grid grid-cols-7", compact ? "gap-1" : "gap-1 sm:gap-2")}>
           {WEEKDAYS.map((d) => (
             <div
@@ -370,9 +372,14 @@ export function CalendarDaySidebar({
   selectedDayEvents,
   onEdit,
   onDelete,
+  onPreTasksChange,
 }) {
   const [detailEvent, setDetailEvent] = useState(null);
   const [anchorRect, setAnchorRect] = useState(null);
+
+  const liveDetailEvent = detailEvent
+    ? selectedDayEvents.find((item) => item.id === detailEvent.id) ?? detailEvent
+    : null;
 
   const closeDetail = () => {
     setDetailEvent(null);
@@ -420,12 +427,18 @@ export function CalendarDaySidebar({
       </div>
 
       <CalendarEventDetailPopover
-        event={detailEvent}
+        event={liveDetailEvent}
         anchorRect={anchorRect}
-        open={Boolean(detailEvent)}
+        open={Boolean(liveDetailEvent)}
         onClose={closeDetail}
         onEdit={onEdit}
         onDelete={onDelete}
+        onPreTasksChange={(event, preTasks) => {
+          onPreTasksChange?.(event, preTasks);
+          setDetailEvent((prev) =>
+            prev && prev.id === event.id ? { ...prev, preTasks } : prev
+          );
+        }}
       />
     </aside>
   );

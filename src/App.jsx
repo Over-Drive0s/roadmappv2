@@ -45,6 +45,7 @@ import {
 } from "recharts";
 import { LoadingProvider } from "./context/LoadingContext";
 import { CalendarEventsProvider, useCalendarEvents } from "./context/CalendarEventsContext";
+import CalendarTasksSync from "./components/tasks/CalendarTasksSync";
 import { TeamProvider } from "./context/TeamContext";
 import { FilesProvider } from "./context/FilesContext";
 import { TasksProvider, useTasks } from "./context/TasksContext";
@@ -63,7 +64,8 @@ import FileManagerPage from "./components/file-manager/FileManagerPage";
 import DreamboardPage from "./components/dreamboard/DreamboardPage";
 import TaskDueDisplay from "./components/tasks/TaskDueDisplay";
 import TaskDreamboardIcon from "./components/tasks/TaskDreamboardIcon";
-import { PRIORITY_TEXT_STYLES, TASK_STATUS_FILTERS } from "./data/tasksData";
+import { TASK_STATUS_FILTERS, canCompleteTask, getTaskPreTasks, isTaskComplete } from "./data/tasksData";
+import { useSyncedTeamWorkload } from "./hooks/useSyncedTeamWorkload";
 import ProjectProgressModal from "./components/projects/ProjectProgressModal";
 import ProjectsPage from "./components/projects/ProjectsPage";
 import CompletedProjectsPage from "./components/projects/CompletedProjectsPage";
@@ -828,6 +830,8 @@ function RoadmapPage({ projects, onUpdateProject }) {
 
 // ─── Widgets ───────────────────────────────────────────────────────────────────
 
+const DASHBOARD_WIDGET_HEIGHT = "h-[248px]";
+
 function DashboardPage({
   projects,
   summary,
@@ -840,6 +844,7 @@ function DashboardPage({
   onOpenOnboarding,
 }) {
   const isBlank = filterActiveProjects(projects).length === 0;
+  const teamWorkload = useSyncedTeamWorkload(projects);
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-4">
@@ -887,21 +892,42 @@ function DashboardPage({
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4 xl:auto-rows-[248px]">
         <ProgressDonut summary={summary} />
         <ProjectSummaryCard summary={summary} />
-        <TeamWorkload summary={summary} />
+        <TeamWorkload workload={teamWorkload} />
         <UpcomingMilestones projects={projects} />
       </div>
-      <div className="grid items-start gap-4 lg:grid-cols-2">
-        <TaskList onViewAllTasks={onViewAllTasks} onAddTask={onAddTask} />
-        <DashboardCalendarWidget onViewFullCalendar={onViewFullCalendar} projects={projects} />
-      </div>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <FileBinWidget onOpenFileManager={onOpenFileManager} />
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3 lg:auto-rows-[248px]">
+        <div
+          className={cn(
+            DASHBOARD_WIDGET_HEIGHT,
+            "min-h-0 overflow-hidden lg:col-start-1 lg:row-start-1"
+          )}
+        >
+          <TaskList onViewAllTasks={onViewAllTasks} onAddTask={onAddTask} />
+        </div>
+        <div
+          className={cn(
+            DASHBOARD_WIDGET_HEIGHT,
+            "min-h-0 overflow-hidden lg:col-start-1 lg:row-start-2"
+          )}
+        >
+          <FileBinWidget onOpenFileManager={onOpenFileManager} />
+        </div>
+        <div
+          className={cn(
+            DASHBOARD_WIDGET_HEIGHT,
+            "min-h-0 overflow-hidden lg:col-span-2 lg:row-span-2 lg:col-start-2 lg:row-start-1 lg:h-auto"
+          )}
+        >
+          <DashboardCalendarWidget
+            onViewFullCalendar={onViewFullCalendar}
+            projects={projects}
+            className="flex h-full flex-col"
+          />
+        </div>
       </div>
     </div>
   );
 }
-
-const DASHBOARD_WIDGET_HEIGHT = "h-[248px]";
 
 function DashboardWidget({
   icon: Icon,
@@ -1551,21 +1577,27 @@ function ProjectSummaryCard({ summary }) {
   );
 }
 
-function TeamWorkload({ summary }) {
-  const capacity = summary.overallProgress || 0;
+function TeamWorkload({ workload }) {
+  const capacity = workload.avgWorkload || 0;
   const balance =
-    capacity >= 70
-      ? { label: "Well balanced", color: "text-emerald-600", dot: "bg-emerald-500" }
-      : capacity >= 40
+    capacity >= 80
+      ? { label: "High load", color: "text-red-600", dot: "bg-red-500" }
+      : capacity >= 60
         ? { label: "Moderate load", color: "text-amber-600", dot: "bg-amber-500" }
-        : { label: "Light load", color: "text-slate-500", dot: "bg-slate-400" };
+        : capacity >= 40
+          ? { label: "Balanced", color: "text-emerald-600", dot: "bg-emerald-500" }
+          : { label: "Light load", color: "text-slate-500", dot: "bg-slate-400" };
 
-  if (summary.total === 0) {
+  const hasTrackedWork =
+    workload.rows.length > 0 &&
+    (workload.totalOpenTasks > 0 || workload.totalOpenJobs > 0 || capacity > 0);
+
+  if (!hasTrackedWork) {
     return (
       <DashboardWidget
         icon={Users}
         title="Team Workload"
-        subtitle="Add projects to track capacity"
+        subtitle="Synced from tasks and project jobs"
         accent="amber"
         scrollable={false}
       >
@@ -1573,7 +1605,7 @@ function TeamWorkload({ summary }) {
           <Users className="mb-2 h-7 w-7 text-slate-300" />
           <p className="text-xs font-semibold text-slate-600">No workload yet</p>
           <p className="mt-1 text-[10px] leading-relaxed text-slate-400">
-            Team capacity appears once you have active projects
+            Assign tasks or add project jobs to track team capacity
           </p>
         </div>
       </DashboardWidget>
@@ -1584,9 +1616,9 @@ function TeamWorkload({ summary }) {
     <DashboardWidget
       icon={Users}
       title="Team Workload"
-      subtitle="Capacity across active work"
+      subtitle="Synced from tasks and project jobs"
       accent="amber"
-      scrollable={false}
+      scrollable
     >
       <div className="flex flex-col gap-3">
         <div className="flex items-end justify-between gap-3">
@@ -1619,7 +1651,7 @@ function TeamWorkload({ summary }) {
 
         <div>
           <div className="mb-1 flex justify-between text-[10px] font-semibold uppercase tracking-wide text-slate-400">
-            <span>Capacity used</span>
+            <span>Team capacity used</span>
             <span>{capacity}%</span>
           </div>
           <div className="h-2 overflow-hidden rounded-full bg-slate-100 ring-1 ring-slate-200/80">
@@ -1632,9 +1664,9 @@ function TeamWorkload({ summary }) {
 
         <div className="grid grid-cols-3 gap-1.5 text-center">
           {[
-            { label: "On track", value: summary.onTrack },
-            { label: "At risk", value: summary.atRisk },
-            { label: "On hold", value: summary.onHold },
+            { label: "Tasks", value: workload.totalOpenTasks },
+            { label: "Jobs", value: workload.totalOpenJobs },
+            { label: "Team", value: workload.rows.length },
           ].map((item) => (
             <div key={item.label} className="rounded-lg bg-slate-50 px-1 py-2 ring-1 ring-slate-100">
               <p className="text-sm font-bold tabular-nums text-slate-800">{item.value}</p>
@@ -1644,6 +1676,27 @@ function TeamWorkload({ summary }) {
             </div>
           ))}
         </div>
+
+        {workload.rows.length > 0 ? (
+          <ul className="space-y-1.5">
+            {workload.rows.map((row) => {
+              const tone = row.workload >= 80 ? "bg-red-500" : row.workload >= 60 ? "bg-amber-500" : "bg-emerald-500";
+              return (
+                <li key={row.memberId} className="flex items-center gap-2">
+                  <span className="w-16 truncate text-[10px] font-semibold text-slate-700">
+                    {row.member.name}
+                  </span>
+                  <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-slate-100">
+                    <div className={cn("h-full rounded-full", tone)} style={{ width: `${row.workload}%` }} />
+                  </div>
+                  <span className="w-8 text-right text-[10px] font-bold tabular-nums text-slate-600">
+                    {row.workload}%
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        ) : null}
       </div>
     </DashboardWidget>
   );
@@ -1717,30 +1770,58 @@ function UpcomingMilestones({ projects }) {
 
 // ─── Tasks ─────────────────────────────────────────────────────────────────────
 
+/** My Tasks widget — checkbox + Task / Project / Due Date columns */
+const DASHBOARD_TASK_GRID =
+  "grid-cols-[18px_minmax(0,1.45fr)_minmax(0,0.95fr)_minmax(0,0.85fr)]";
+
 function TaskList({ onViewAllTasks, onAddTask }) {
-  const { tasks } = useTasks();
+  const { tasks, updateTask } = useTasks();
   const [filter, setFilter] = useState("all");
-  const [completedIds, setCompletedIds] = useState(
-    () => new Set(tasks.filter((t) => t.completed).map((t) => t.id))
+
+  const myTasks = useMemo(
+    () => tasks.filter((task) => task.assignee.name === CURRENT_USER.name),
+    [tasks]
+  );
+
+  const filterCounts = useMemo(() => {
+    const open = myTasks.filter((task) => !isTaskComplete(task));
+    return {
+      all: open.length,
+      todo: open.filter((task) => task.status === "todo").length,
+      in_progress: open.filter((task) => task.status === "in_progress").length,
+      done: myTasks.filter(isTaskComplete).length,
+    };
+  }, [myTasks]);
+
+  const dashboardTaskFilters = useMemo(
+    () => TASK_STATUS_FILTERS.filter((f) => f.id !== "mine"),
+    []
   );
 
   const filteredTasks = useMemo(() => {
-    return tasks.filter((task) => {
-      const isDone = completedIds.has(task.id);
-      if (filter === "all") return true;
+    return myTasks.filter((task) => {
+      const isDone = isTaskComplete(task);
+      if (filter === "all") return !isDone;
       if (filter === "done") return isDone;
       if (filter === "todo") return !isDone && task.status === "todo";
       if (filter === "in_progress") return !isDone && task.status === "in_progress";
       return true;
     });
-  }, [tasks, filter, completedIds]);
+  }, [myTasks, filter]);
 
   const toggleTask = (id) => {
-    setCompletedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
+    const task = myTasks.find((item) => item.id === id);
+    if (!task) return;
+
+    const isDone = isTaskComplete(task);
+    if (!isDone && !canCompleteTask(task)) {
+      onViewAllTasks?.();
+      return;
+    }
+
+    updateTask(id, {
+      completed: !isDone,
+      status: !isDone ? "done" : task.status === "done" ? "todo" : task.status,
     });
   };
 
@@ -1749,101 +1830,134 @@ function TaskList({ onViewAllTasks, onAddTask }) {
       compact
       title="My Tasks"
       action={
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1.5">
           <button
             type="button"
             onClick={onViewAllTasks}
-            className="text-xs font-medium text-indigo-600 hover:text-indigo-700"
+            className="text-[10px] font-medium text-indigo-600 hover:text-indigo-700 sm:text-xs"
           >
-            View All Tasks
+            View all
           </button>
           <button
             type="button"
             onClick={onAddTask}
-            className="flex items-center gap-1 rounded-lg bg-blue-600 px-2.5 py-1.5 text-xs font-semibold text-white hover:bg-blue-700"
+            className="flex items-center gap-0.5 rounded-lg bg-blue-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-blue-700 sm:gap-1 sm:px-2.5 sm:py-1.5 sm:text-xs"
           >
-            <Plus className="h-3.5 w-3.5" />
-            Add Task
+            <Plus className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
+            Add
           </button>
         </div>
       }
-      className="flex flex-col"
+      className="flex h-full min-h-0 flex-col overflow-hidden"
     >
-      <div className="mb-3 flex gap-1 border-b border-slate-100">
-        {TASK_STATUS_FILTERS.filter((f) => f.id !== "mine").map((f) => (
+      <div className="mb-2 flex shrink-0 flex-wrap gap-x-0.5 gap-y-0 border-b border-slate-100">
+        {dashboardTaskFilters.map((f) => (
           <button
             key={f.id}
             type="button"
             onClick={() => setFilter(f.id)}
             className={cn(
-              "border-b-2 px-3 py-2 text-xs font-medium transition",
+              "inline-flex items-center gap-1 border-b-2 px-1.5 py-1.5 text-[10px] font-medium transition sm:px-2",
               filter === f.id
                 ? "border-indigo-600 text-indigo-600"
                 : "border-transparent text-slate-500 hover:text-slate-700"
             )}
           >
-            {f.label}
+            <span>{f.label}</span>
+            <span
+              className={cn(
+                "min-w-[1rem] rounded-full px-1 py-px text-[9px] font-semibold tabular-nums leading-none",
+                filter === f.id
+                  ? "bg-indigo-100 text-indigo-700"
+                  : "bg-slate-100 text-slate-500"
+              )}
+            >
+              {filterCounts[f.id] ?? 0}
+            </span>
           </button>
         ))}
       </div>
 
       {/* Table header */}
       <div
-        className="mb-2 hidden grid-cols-[24px_minmax(0,1.65fr)_minmax(0,1fr)_minmax(12rem,1.5fr)_minmax(4.5rem,0.75fr)_32px] items-center gap-4 px-2 text-[10px] font-semibold uppercase tracking-wide text-slate-400 sm:grid"
+        className={cn(
+          "mb-1 grid shrink-0 items-center gap-2 px-1.5 text-[9px] font-semibold uppercase tracking-wide text-slate-400",
+          DASHBOARD_TASK_GRID
+        )}
       >
-        <span />
-        <span>Task</span>
-        <span>Project</span>
-        <span>Date</span>
-        <span>Priority</span>
-        <span className="text-center">Owner</span>
-        <span />
+        <span aria-hidden />
+        <span className="min-w-0 truncate">Task</span>
+        <span className="min-w-0 truncate">Project</span>
+        <span className="min-w-0 truncate">Due Date</span>
       </div>
 
-      <ul className="max-h-[260px] space-y-0.5 overflow-y-auto">
+      <ul className="scrollbar-hidden min-h-0 flex-1 space-y-0.5 overflow-y-auto">
         {filteredTasks.length === 0 ? (
-          <li className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-10 text-center">
-            <CheckSquare className="mb-2 h-7 w-7 text-slate-300" />
-            <p className="text-sm font-semibold text-slate-600">No tasks yet</p>
-            <p className="mt-1 text-xs text-slate-400">
-              Create a task or add tasks inside a project
+          <li className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/50 px-4 py-8 text-center">
+            <CheckSquare className="mb-2 h-6 w-6 text-slate-300" />
+            <p className="text-xs font-semibold text-slate-600">
+              {myTasks.length === 0 ? "No tasks yet" : "No tasks in this filter"}
+            </p>
+            <p className="mt-1 text-[10px] text-slate-400">
+              {myTasks.length === 0
+                ? "Add a task assigned to you, or create one from a project"
+                : "Try another status tab above"}
             </p>
           </li>
         ) : (
         filteredTasks.map((task) => {
-          const isDone = completedIds.has(task.id);
+          const isDone = isTaskComplete(task);
+          const hasPreTasks = getTaskPreTasks(task).length > 0;
+          const canComplete = canCompleteTask(task);
           return (
             <li
               key={task.id}
               className={cn(
-                "grid grid-cols-[24px_1fr] items-center gap-3 rounded-lg px-2 py-2.5 hover:bg-slate-50 sm:grid-cols-[24px_minmax(0,1.65fr)_minmax(0,1fr)_minmax(12rem,1.5fr)_minmax(4.5rem,0.75fr)_32px] sm:gap-4 sm:py-3",
+                "grid items-center gap-2 rounded-lg px-1.5 py-1.5 hover:bg-slate-50",
+                DASHBOARD_TASK_GRID,
                 isDone && "opacity-70"
               )}
             >
               <button
                 type="button"
                 onClick={() => toggleTask(task.id)}
-                aria-label={isDone ? "Mark incomplete" : "Mark complete"}
+                title={
+                  !isDone && hasPreTasks && !canComplete
+                    ? "Complete pre-tasks on the Tasks page first"
+                    : isDone
+                      ? "Mark incomplete"
+                      : "Mark complete"
+                }
+                aria-label={
+                  !isDone && hasPreTasks && !canComplete
+                    ? "Complete all pre-tasks before marking this task done"
+                    : isDone
+                      ? "Mark incomplete"
+                      : "Mark complete"
+                }
                 className={cn(
-                  "flex h-5 w-5 shrink-0 items-center justify-center rounded-full border-2 transition",
-                  isDone
-                    ? "border-emerald-500 bg-emerald-500 text-white"
-                    : "border-slate-300 hover:border-indigo-400"
+                  "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2 transition",
+                  !isDone && hasPreTasks && !canComplete
+                    ? "border-amber-300 bg-amber-50 hover:border-amber-400"
+                    : isDone
+                      ? "border-emerald-500 bg-emerald-500 text-white"
+                      : "border-slate-300 hover:border-indigo-400"
                 )}
               >
-                {isDone && <Check className="h-3 w-3" strokeWidth={3} />}
+                {isDone && <Check className="h-2.5 w-2.5" strokeWidth={3} />}
               </button>
 
-              <div className="flex min-w-0 items-center gap-1.5">
+              <div className="flex min-w-0 items-center gap-1">
                 <p
                   className={cn(
-                    "min-w-0 truncate text-sm text-slate-800",
+                    "min-w-0 flex-1 truncate text-[11px] leading-tight text-slate-800",
                     isDone && "line-through text-slate-500"
                   )}
+                  title={task.title}
                 >
                   {task.title}
                 </p>
-                <TaskDreamboardIcon task={task} className="h-3 w-3" />
+                <TaskDreamboardIcon task={task} className="h-3 w-3 shrink-0" />
                 {task.attachments?.length > 0 ? (
                   <Paperclip
                     className="h-3 w-3 shrink-0 text-indigo-500"
@@ -1854,41 +1968,26 @@ function TaskList({ onViewAllTasks, onAddTask }) {
               </div>
 
               <span
-                className="hidden min-w-0 truncate rounded-full px-2 py-0.5 text-[10px] font-medium sm:inline-block"
+                className="min-w-0 truncate rounded-full px-1.5 py-px text-[9px] font-medium"
                 style={{ backgroundColor: `${task.projectColor}15`, color: task.projectColor }}
+                title={task.project || "—"}
               >
                 {task.project || "—"}
               </span>
 
-              <div className="hidden sm:block">
-                <TaskDueDisplay task={task} />
-              </div>
-
-              <span className={cn("hidden shrink-0 text-xs font-medium capitalize sm:inline", PRIORITY_TEXT_STYLES[task.priority])}>
-                {task.priority}
-              </span>
-
-              <div
-                className="hidden h-7 w-7 shrink-0 items-center justify-center rounded-full text-[10px] font-bold text-white sm:flex"
-                style={{ backgroundColor: task.assignee.color }}
-                title={task.assignee.name}
-              >
-                {task.assignee.initials}
+              <div className="min-w-0 truncate">
+                <TaskDueDisplay
+                  task={task}
+                  compact
+                  dateOnly
+                  className="block min-w-0 truncate text-[9px] text-slate-600"
+                />
               </div>
             </li>
           );
         })
         )}
       </ul>
-
-      <button
-        type="button"
-        onClick={onAddTask}
-        className="mt-3 flex items-center gap-1 text-xs font-medium text-indigo-600 hover:text-indigo-700"
-      >
-        <Plus className="h-3.5 w-3.5" />
-        Add Task
-      </button>
     </Card>
   );
 }
@@ -2085,6 +2184,7 @@ export default function App() {
     <TasksProvider>
     <FilesProvider projects={projects} onProjectsChange={setProjects}>
     <CalendarEventsProvider>
+    <CalendarTasksSync />
     <div className="app-viewport-shell">
       <div className="app-dashboard-card">
     <div className="flex h-full overflow-hidden bg-slate-50">
@@ -2099,21 +2199,8 @@ export default function App() {
           <Header onOpenOnboarding={openOnboarding} isBlankWorkspace={isBlankWorkspace} />
         )}
 
-        <main
-          className={cn(
-            "scrollbar-hidden min-h-0 flex-1 p-4 pb-20 sm:p-5 lg:pb-6 lg:p-6",
-            activePage === "dreamboard"
-              ? "flex flex-col overflow-hidden"
-              : "overflow-y-auto"
-          )}
-        >
-          <div
-            key={activePage}
-            className={cn(
-              "page-content-enter",
-              activePage === "dreamboard" && "flex min-h-0 flex-1 flex-col"
-            )}
-          >
+        <main className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto p-4 pb-20 sm:p-5 lg:pb-6 lg:p-6">
+          <div key={activePage} className="page-content-enter">
           {activePage === "dashboard" ? (
             <DashboardPage
               projects={projects}

@@ -8,6 +8,15 @@ export function TeamProvider({ children }) {
   const [members, setMembers] = useState(() => loadTeamMembers());
 
   useEffect(() => {
+    setMembers((prev) => {
+      const enisOnly = prev.filter((member) => member.id === "enis" || member.name === "Enis");
+      if (enisOnly.length === prev.length && enisOnly.length > 0) return prev;
+      if (enisOnly.length > 0) return enisOnly;
+      return loadTeamMembers();
+    });
+  }, []);
+
+  useEffect(() => {
     saveTeamMembers(members);
   }, [members]);
 

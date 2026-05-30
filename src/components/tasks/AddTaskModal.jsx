@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { createPortal } from "react-dom";
 import {
   ArrowLeft,
   ArrowRight,
@@ -25,8 +26,10 @@ import {
   TASK_STATUS_OPTIONS,
   findTaskAssigneeId,
   formatTaskDueLabel,
+  getTaskPreTasks,
 } from "../../data/tasksData";
 import { filterActiveProjects, getProjectStageColor } from "../../lib/projectUtils";
+import { lockBodyScroll } from "../../lib/modalBodyLock";
 import { useTeam } from "../../context/TeamContext";
 
 const FIELD = onboardingFieldVariant;
@@ -158,11 +161,7 @@ export default function AddTaskModal({
         dueTime: editingTask.dueTime ?? "",
         dueTimeSelected: Boolean(editingTask.dueTime?.trim()),
         assigneeId: findTaskAssigneeId(editingTask.assignee, assignees),
-        preTasks: editingTask.preTasks?.length
-          ? [...editingTask.preTasks]
-          : editingTask.preTask
-            ? [editingTask.preTask]
-            : [],
+        preTasks: getTaskPreTasks(editingTask).map((item) => item.title),
         attachments: editingTask.attachments?.length ? [...editingTask.attachments] : [],
       });
       setPreTaskInput("");
@@ -197,6 +196,11 @@ export default function AddTaskModal({
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [open, onClose, timePickerOpen, previewAttachment]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    return lockBodyScroll();
+  }, [open]);
 
   if (!open) return null;
 
@@ -251,21 +255,22 @@ export default function AddTaskModal({
   const timeFieldClassName =
     "w-full rounded-xl border border-slate-400 bg-white px-3 py-2.5 text-sm text-slate-950 shadow-sm focus:border-indigo-600 focus:outline-none focus:ring-2 focus:ring-indigo-200";
 
-  return (
+  return createPortal(
     <>
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+    <div className="fixed inset-0 z-[150] overflow-y-auto">
       <button
         type="button"
         aria-label="Close modal backdrop"
-        className={cn("absolute inset-0", onboardingShell.backdrop)}
+        className={cn("fixed inset-0", onboardingShell.backdrop)}
         onClick={() => {
           if (!timePickerOpen) onClose();
         }}
       />
 
+      <div className="flex min-h-full items-center justify-center p-4">
       <div
         className={cn(
-          "relative flex max-h-[92vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border",
+          "relative z-10 flex max-h-[min(calc(100vh-2rem),860px)] w-full max-w-2xl flex-col overflow-hidden rounded-2xl border",
           onboardingShell.panel
         )}
       >
@@ -582,12 +587,13 @@ export default function AddTaskModal({
           )}
         </div>
       </div>
+      </div>
     </div>
 
       <EventTimePickerOverlay
         open={timePickerOpen}
         value={form.dueTimeSelected ? form.dueTime : formatCurrentTimeLabel()}
-        zIndexClass="z-[110]"
+        zIndexClass="z-[160]"
         onClose={() => setTimePickerOpen(false)}
         onConfirm={(value) => {
           setForm((f) => ({ ...f, dueTime: value, dueTimeSelected: true }));
@@ -599,6 +605,7 @@ export default function AddTaskModal({
         open={Boolean(previewAttachment)}
         onClose={() => setPreviewAttachment(null)}
       />
-    </>
+    </>,
+    document.body
   );
 }

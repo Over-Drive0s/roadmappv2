@@ -58,9 +58,42 @@ export const CALENDAR_TYPE_FILTERS = [
  *   description?: string;
  *   tags?: string[];
  *   projectId?: string;
+ *   preTasks?: string[];
  *   preTask?: string;
  * }} CalendarEvent
  */
+
+export function getEventPreTasks(event) {
+  if (!event) return [];
+  if (Array.isArray(event.preTasks) && event.preTasks.length > 0) {
+    return event.preTasks
+      .map((item) => (typeof item === "string" ? item.trim() : ""))
+      .filter(Boolean);
+  }
+  if (event.preTask?.trim()) return [event.preTask.trim()];
+  return [];
+}
+
+export function normalizeCalendarEvent(event) {
+  const preTasks = getEventPreTasks(event);
+  const { preTask: _legacyPreTask, ...rest } = event;
+  return { ...rest, preTasks };
+}
+
+function resolveEventPreTasks(existing, fields) {
+  if (fields.preTasks !== undefined) {
+    return Array.isArray(fields.preTasks)
+      ? fields.preTasks
+          .map((item) => (typeof item === "string" ? item.trim() : ""))
+          .filter(Boolean)
+      : getEventPreTasks(existing);
+  }
+  if (fields.preTask !== undefined) {
+    const trimmed = fields.preTask?.trim();
+    return trimmed ? [trimmed] : [];
+  }
+  return getEventPreTasks(existing);
+}
 
 /** @type {CalendarEvent[]} */
 export const CALENDAR_EVENTS = [
@@ -246,7 +279,7 @@ export function createCalendarEvent(fields) {
     description: fields.description?.trim() ?? "",
     tags: Array.isArray(fields.tags) ? fields.tags.filter(Boolean) : [],
     projectId: fields.projectId ?? null,
-    preTask: fields.preTask?.trim() ?? "",
+    preTasks: resolveEventPreTasks({}, fields),
   };
 }
 
@@ -262,8 +295,10 @@ export function mergeCalendarEvent(existing, fields) {
     description: fields.description?.trim() ?? existing.description ?? "",
     tags: Array.isArray(fields.tags) ? fields.tags.filter(Boolean) : existing.tags ?? [],
     projectId: fields.projectId !== undefined ? fields.projectId : existing.projectId,
-    preTask:
-      fields.preTask !== undefined ? fields.preTask.trim() : (existing.preTask ?? ""),
+    preTasks:
+      fields.preTasks !== undefined || fields.preTask !== undefined
+        ? resolveEventPreTasks(existing, fields)
+        : getEventPreTasks(existing),
   };
 }
 

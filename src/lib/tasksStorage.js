@@ -1,3 +1,4 @@
+import { normalizeTask } from "../data/tasksData";
 import { isCurrentWorkspaceVersion, WORKSPACE_VERSION } from "./workspaceConstants";
 import { readBinPayload, writeBinPayload } from "./storageAdapter";
 
@@ -7,7 +8,7 @@ export function loadTasks() {
   try {
     const data = readBinPayload(STORAGE_KEY);
     if (data && isCurrentWorkspaceVersion(data) && Array.isArray(data.tasks)) {
-      return data.tasks;
+      return data.tasks.map(normalizeTask);
     }
   } catch (err) {
     console.warn("Could not load tasks:", err);

@@ -8,7 +8,9 @@ export function loadTeamMembers() {
   try {
     const data = readBinPayload(STORAGE_KEY);
     if (data && isCurrentWorkspaceVersion(data) && Array.isArray(data.members)) {
-      return data.members;
+      if (data.members.length > 0) {
+        return data.members;
+      }
     }
   } catch (err) {
     console.warn("Could not load team members:", err);

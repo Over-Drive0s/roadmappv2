@@ -57,12 +57,20 @@ function createWindow() {
     height: 900,
     minWidth: 1024,
     minHeight: 700,
+    show: false,
     title: "Over Drive OS",
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
       nodeIntegration: false,
     },
+  });
+
+  win.once("ready-to-show", () => {
+    if (!isDev) {
+      win.maximize();
+    }
+    win.show();
   });
 
   if (isDev) {

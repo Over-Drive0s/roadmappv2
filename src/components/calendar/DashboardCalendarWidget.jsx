@@ -2,7 +2,11 @@ import { useCalendarEvents } from "../../context/CalendarEventsContext";
 import PortfolioMonthCalendar, { useCalendarSelection } from "./PortfolioMonthCalendar";
 import { useAddCalendarEventModal } from "./useAddCalendarEventModal";
 
-export default function DashboardCalendarWidget({ onViewFullCalendar, projects = [] }) {
+export default function DashboardCalendarWidget({
+  onViewFullCalendar,
+  projects = [],
+  className,
+}) {
   const { events, addEvent } = useCalendarEvents();
   const { viewDate, setViewDate, selectedDay, setSelectedDay } = useCalendarSelection(events);
 
@@ -19,6 +23,7 @@ export default function DashboardCalendarWidget({ onViewFullCalendar, projects =
       <PortfolioMonthCalendar
         events={events}
         compact
+        className={className}
         viewDate={viewDate}
         onViewDateChange={setViewDate}
         selectedDay={selectedDay}

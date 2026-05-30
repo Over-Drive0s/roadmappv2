@@ -1,5 +1,5 @@
 /** Bump to force a one-time wipe of all persisted demo / legacy workspace data. */
-export const WORKSPACE_VERSION = 3;
+export const WORKSPACE_VERSION = 4;
 
 /** Legacy localStorage keys migrated into on-disk bins. */
 export const LEGACY_LOCAL_STORAGE_KEYS = [

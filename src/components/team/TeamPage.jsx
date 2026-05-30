@@ -14,6 +14,7 @@ import {
   getWorkloadTone,
 } from "../../data/teamData";
 import { filterActiveProjects, getProjectStageColor } from "../../lib/projectUtils";
+import { useSyncedTeamWorkload } from "../../hooks/useSyncedTeamWorkload";
 import { useTeam } from "../../context/TeamContext";
 import NewTeamMemberOnboarding from "./NewTeamMemberOnboarding";
 
@@ -98,6 +99,7 @@ function buildMemberProjectMap(projects, members) {
 
 export default function TeamPage({ projects = [] }) {
   const { members } = useTeam();
+  const workload = useSyncedTeamWorkload(projects);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [onboardingOpen, setOnboardingOpen] = useState(false);
@@ -109,9 +111,7 @@ export default function TeamPage({ projects = [] }) {
 
   const stats = useMemo(() => {
     const onProjects = members.filter((m) => (projectMap.get(m.id)?.length ?? 0) > 0).length;
-    const avgWorkload = members.length
-      ? Math.round(members.reduce((sum, m) => sum + m.workload, 0) / members.length)
-      : 0;
+    const avgWorkload = workload.avgWorkload;
     const owners = new Set(
       filterActiveProjects(projects)
         .map((p) => p.team?.projectOwner)
@@ -123,8 +123,10 @@ export default function TeamPage({ projects = [] }) {
       onProjects,
       avgWorkload,
       owners: owners.size,
+      openTasks: workload.totalOpenTasks,
+      openJobs: workload.totalOpenJobs,
     };
-  }, [projects, projectMap, members]);
+  }, [projects, projectMap, members, workload]);
 
   const filteredMembers = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -193,7 +195,7 @@ export default function TeamPage({ projects = [] }) {
           icon={TrendingUp}
           label="Avg. workload"
           value={`${stats.avgWorkload}%`}
-          subtitle="Capacity utilization"
+          subtitle={`${stats.openTasks} tasks · ${stats.openJobs} project jobs`}
           accent="amber"
         />
         <TeamStatCard
@@ -246,8 +248,9 @@ export default function TeamPage({ projects = [] }) {
         <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {filteredMembers.map((member) => {
             const assignedProjects = projectMap.get(member.id) ?? [];
+            const memberWorkload = workload.workloadByMemberId[member.id] ?? 0;
             const status = TEAM_STATUS_STYLES[member.status];
-            const workloadTone = getWorkloadTone(member.workload);
+            const workloadTone = getWorkloadTone(memberWorkload);
             const isOwnerOn = assignedProjects.some((p) => p.team?.projectOwner === member.name);
 
             return (
@@ -287,13 +290,13 @@ export default function TeamPage({ projects = [] }) {
                     <div className="mb-1 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wide text-slate-400">
                       <span>Workload</span>
                       <span className={cn("normal-case", workloadTone.label === "High load" && "text-red-600")}>
-                        {member.workload}% · {workloadTone.label}
+                        {memberWorkload}% · {workloadTone.label}
                       </span>
                     </div>
                     <div className="h-1.5 overflow-hidden rounded-full bg-slate-100">
                       <div
                         className={cn("h-full rounded-full transition-all", workloadTone.bar)}
-                        style={{ width: `${member.workload}%` }}
+                        style={{ width: `${memberWorkload}%` }}
                       />
                     </div>
                   </div>
