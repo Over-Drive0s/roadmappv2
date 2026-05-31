@@ -2,7 +2,9 @@ import { useMemo, useState } from "react";
 import {
   Briefcase,
   Mail,
+  Pencil,
   Search,
+  Trash2,
   TrendingUp,
   UserPlus,
   Users,
@@ -13,10 +15,13 @@ import {
   TEAM_STATUS_STYLES,
   getWorkloadTone,
 } from "../../data/teamData";
-import { filterActiveProjects, getProjectStageColor } from "../../lib/projectUtils";
+import { filterActiveProjects, getProjectStageColor, normalizeProject, addMemberToProjectTeam } from "../../lib/projectUtils";
 import { useSyncedTeamWorkload } from "../../hooks/useSyncedTeamWorkload";
+import { useRoadmapAuth } from "../../context/RoadmapAuthContext";
 import { useTeam } from "../../context/TeamContext";
 import NewTeamMemberOnboarding from "./NewTeamMemberOnboarding";
+import EditTeamMemberModal from "./EditTeamMemberModal";
+import TeamMemberDetailModal from "./TeamMemberDetailModal";
 
 function cn(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -97,12 +102,15 @@ function buildMemberProjectMap(projects, members) {
   return map;
 }
 
-export default function TeamPage({ projects = [] }) {
-  const { members } = useTeam();
+export default function TeamPage({ projects = [], onUpdateProject }) {
+  const { profile } = useRoadmapAuth();
+  const { members, canAddMembers, deleteMember } = useTeam();
   const workload = useSyncedTeamWorkload(projects);
   const [search, setSearch] = useState("");
   const [roleFilter, setRoleFilter] = useState("all");
   const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const [selectedMemberId, setSelectedMemberId] = useState(null);
+  const [editingMemberId, setEditingMemberId] = useState(null);
 
   const projectMap = useMemo(
     () => buildMemberProjectMap(projects, members),
@@ -134,16 +142,92 @@ export default function TeamPage({ projects = [] }) {
     return members.filter((member) => {
       if (roleFilter !== "all" && member.department !== roleFilter) return false;
       if (!query) return true;
-      const haystack = `${member.name} ${member.role} ${member.email}`.toLowerCase();
+      const haystack = `${member.name} ${member.role} ${member.email} ${member.phoneNumber ?? ""}`.toLowerCase();
       return haystack.includes(query);
     });
   }, [search, roleFilter, members]);
+
+  const selectedMember = useMemo(
+    () => members.find((member) => member.id === selectedMemberId) ?? null,
+    [members, selectedMemberId]
+  );
+
+  const editingMember = useMemo(
+    () => members.find((member) => member.id === editingMemberId) ?? null,
+    [members, editingMemberId]
+  );
+
+  const selectedMemberProjects = selectedMember
+    ? (projectMap.get(selectedMember.id) ?? [])
+    : [];
+
+  const selectedMemberWorkload = selectedMember
+    ? (workload.workloadByMemberId[selectedMember.id] ?? 0)
+    : 0;
+
+  const handleInviteMember = () => {
+    const workspaceName = profile?.workspaceName?.trim() || "our workspace";
+    const subject = encodeURIComponent(`Join ${workspaceName} on Over Drive OS`);
+    const body = encodeURIComponent(
+      `Hi,\n\nYou're invited to join the ${workspaceName} team on Over Drive OS.\n\nSign up or sign in to get started.\n`
+    );
+    window.location.href = `mailto:?subject=${subject}&body=${body}`;
+  };
+
+  const handleEditMember = (member) => {
+    setEditingMemberId(member.id);
+  };
+
+  const handleDeleteMember = (member) => {
+    if (member.isCurrentUser) return;
+
+    const confirmed = window.confirm(
+      `Remove ${member.name} from the team? They will no longer appear in assignments.`
+    );
+    if (!confirmed) return;
+
+    deleteMember(member.id);
+    if (selectedMemberId === member.id) setSelectedMemberId(null);
+    if (editingMemberId === member.id) setEditingMemberId(null);
+  };
+
+  const stopCardAction = (event) => {
+    event.stopPropagation();
+  };
+
+  const handleMemberAdded = (member, projectId) => {
+    if (!member || !projectId || !onUpdateProject) return;
+
+    const project = projects.find((item) => item.id === projectId);
+    if (!project) return;
+
+    onUpdateProject(normalizeProject(addMemberToProjectTeam(project, member)));
+  };
 
   return (
     <div className="mx-auto max-w-[1600px]">
       <NewTeamMemberOnboarding
         open={onboardingOpen}
         onClose={() => setOnboardingOpen(false)}
+        projects={projects}
+        onAdded={handleMemberAdded}
+      />
+      <EditTeamMemberModal
+        member={editingMember}
+        open={Boolean(editingMember)}
+        onClose={() => setEditingMemberId(null)}
+      />
+      <TeamMemberDetailModal
+        member={selectedMember}
+        open={Boolean(selectedMember)}
+        onClose={() => setSelectedMemberId(null)}
+        onEdit={(member) => {
+          setSelectedMemberId(null);
+          handleEditMember(member);
+        }}
+        onDelete={handleDeleteMember}
+        assignedProjects={selectedMemberProjects}
+        workload={selectedMemberWorkload}
       />
       <div className="mb-6 overflow-hidden rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white via-white to-emerald-50/40 p-6 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -156,23 +240,26 @@ export default function TeamPage({ projects = [] }) {
               People, roles, workload, and project assignments across your portfolio.
             </p>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <button
-              type="button"
-              onClick={() => setOnboardingOpen(true)}
-              className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition hover:bg-emerald-700"
-            >
-              <UserPlus className="h-4 w-4" />
-              Add Member
-            </button>
-            <button
-              type="button"
-              className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-4 py-2.5 text-sm font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50"
-            >
-              <UserPlus className="h-4 w-4" />
-              Invite Member
-            </button>
-          </div>
+          {canAddMembers ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setOnboardingOpen(true)}
+                className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-emerald-600/20 transition hover:bg-emerald-700"
+              >
+                <UserPlus className="h-4 w-4" />
+                Add Member
+              </button>
+              <button
+                type="button"
+                onClick={handleInviteMember}
+                className="inline-flex items-center justify-center gap-1.5 rounded-xl border border-emerald-200 bg-white px-4 py-2.5 text-sm font-semibold text-emerald-700 shadow-sm transition hover:border-emerald-300 hover:bg-emerald-50"
+              >
+                <UserPlus className="h-4 w-4" />
+                Invite Member
+              </button>
+            </div>
+          ) : null}
         </div>
       </div>
 
@@ -214,7 +301,7 @@ export default function TeamPage({ projects = [] }) {
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search by name, role, or email…"
+            placeholder="Search by name, role, email, or phone…"
             className="w-full rounded-lg border border-slate-200 bg-white py-2 pl-9 pr-3 text-sm text-slate-800 placeholder:text-slate-400 focus:border-emerald-300 focus:outline-none focus:ring-2 focus:ring-emerald-500/20"
           />
         </div>
@@ -256,7 +343,16 @@ export default function TeamPage({ projects = [] }) {
             return (
               <article
                 key={member.id}
-                className="flex flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition hover:border-emerald-200/80 hover:shadow-md"
+                role="button"
+                tabIndex={0}
+                onClick={() => setSelectedMemberId(member.id)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter" || event.key === " ") {
+                    event.preventDefault();
+                    setSelectedMemberId(member.id);
+                  }
+                }}
+                className="flex cursor-pointer flex-col overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm transition hover:border-emerald-200/80 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-emerald-500/30"
               >
                 <div className="border-b border-slate-100 p-5">
                   <div className="flex items-start gap-3">
@@ -266,6 +362,11 @@ export default function TeamPage({ projects = [] }) {
                         <h3 className="truncate text-sm font-semibold text-slate-900">
                           {member.name}
                         </h3>
+                        {member.isCurrentUser ? (
+                          <span className="inline-flex rounded-full bg-emerald-50 px-2 py-0.5 text-[10px] font-semibold text-emerald-700 ring-1 ring-emerald-200 ring-inset">
+                            You
+                          </span>
+                        ) : null}
                         <span
                           className={cn(
                             "inline-flex rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ring-inset",
@@ -276,13 +377,34 @@ export default function TeamPage({ projects = [] }) {
                         </span>
                       </div>
                       <p className="mt-0.5 text-xs text-slate-500">{member.role}</p>
-                      <a
-                        href={`mailto:${member.email}`}
-                        className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600 hover:text-emerald-700"
-                      >
+                      <p className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-medium text-emerald-600">
                         <Mail className="h-3 w-3" />
-                        {member.email}
-                      </a>
+                        View details
+                      </p>
+                    </div>
+                    <div
+                      className="flex shrink-0 gap-1"
+                      onClick={stopCardAction}
+                      onKeyDown={stopCardAction}
+                    >
+                      <button
+                        type="button"
+                        aria-label={`Edit ${member.name}`}
+                        onClick={() => handleEditMember(member)}
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-emerald-200 hover:bg-emerald-50 hover:text-emerald-700"
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </button>
+                      {!member.isCurrentUser ? (
+                        <button
+                          type="button"
+                          aria-label={`Delete ${member.name}`}
+                          onClick={() => handleDeleteMember(member)}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-slate-200 bg-white text-slate-500 transition hover:border-red-200 hover:bg-red-50 hover:text-red-700"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      ) : null}
                     </div>
                   </div>
 

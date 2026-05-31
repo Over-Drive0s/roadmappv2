@@ -29,6 +29,34 @@ export function syncTeamFromPhaseAssignees(phases, members, team = {}) {
   };
 }
 
+export function memberAlreadyOnProjectTeam(project, member) {
+  if (!project || !member) return false;
+  if (project.team?.projectOwner === member.name) return true;
+
+  const teamMembers = project.team?.teamMembers ?? [];
+  return teamMembers.some((entry) => {
+    if (typeof entry === "string") {
+      return entry === member.id || entry === member.name;
+    }
+    return entry?.id === member.id || entry?.name === member.name;
+  });
+}
+
+/** Adds a team member ID to a project's team roster when not already assigned. */
+export function addMemberToProjectTeam(project, member) {
+  if (!project || !member) return project;
+  if (memberAlreadyOnProjectTeam(project, member)) return project;
+
+  const existing = project.team?.teamMembers ?? [];
+  return {
+    ...project,
+    team: {
+      ...project.team,
+      teamMembers: [...existing, member.id],
+    },
+  };
+}
+
 export function getPhaseAssigneeName(phase, members) {
   if (!phase?.assignedMemberId) return null;
   return members.find((member) => member.id === phase.assignedMemberId)?.name ?? null;

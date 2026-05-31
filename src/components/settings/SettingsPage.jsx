@@ -1,7 +1,8 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Bell,
   Calendar,
+  Download,
   Globe,
   Layout,
   LogOut,
@@ -15,6 +16,7 @@ import {
   User,
   X,
 } from "lucide-react";
+import { useRoadmapAuth } from "../../context/RoadmapAuthContext";
 import { useWorkspaceSettings } from "../../context/WorkspaceSettingsContext";
 import {
   APPEARANCE_DEFAULTS,
@@ -23,10 +25,13 @@ import {
   NOTIFICATION_DEFAULTS,
   SETTINGS_SECTIONS,
   TIME_FORMAT_OPTIONS,
-  USER_PROFILE,
   WEEK_START_OPTIONS,
   WORKSPACE_DEFAULTS,
 } from "../../data/settingsData";
+import { getRoadmapProfileEmail } from "../../data/roadmapProfileStorage";
+import { getSettingsProfileFormValues } from "../../lib/settingsProfileFields";
+import ResetWorkspaceCard from "./ResetWorkspaceCard";
+import WorkspaceCsvBackupCard from "./WorkspaceCsvBackupCard";
 
 function cn(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -38,6 +43,7 @@ const SECTION_ICONS = {
   tags: Tag,
   appearance: Palette,
   workspace: Layout,
+  backup: Download,
   account: Shield,
 };
 
@@ -101,21 +107,37 @@ const selectClassName =
   "w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-800 focus:border-indigo-300 focus:outline-none focus:ring-2 focus:ring-indigo-500/20";
 
 export default function SettingsPage({ initialSection = "profile" }) {
+  const { profile: roadmapProfile, updateProfile } = useRoadmapAuth();
   const { eventTags, addEventTag, removeEventTag } = useWorkspaceSettings();
   const [activeSection, setActiveSection] = useState(initialSection);
   const [saved, setSaved] = useState(false);
+  const [profileError, setProfileError] = useState("");
   const [newTag, setNewTag] = useState("");
 
   const [profile, setProfile] = useState({
-    name: USER_PROFILE.name,
-    role: USER_PROFILE.role,
-    email: USER_PROFILE.email,
-    timezone: USER_PROFILE.timezone,
+    name: "",
+    role: "",
+    email: "",
+    timezone: "",
   });
 
   const [notifications, setNotifications] = useState(NOTIFICATION_DEFAULTS);
   const [appearance, setAppearance] = useState(APPEARANCE_DEFAULTS);
   const [workspace, setWorkspace] = useState(WORKSPACE_DEFAULTS);
+
+  useEffect(() => {
+    if (!roadmapProfile) return;
+    setProfile(getSettingsProfileFormValues(roadmapProfile));
+  }, [roadmapProfile?.id, roadmapProfile?.fullName, roadmapProfile?.role]);
+
+  useEffect(() => {
+    if (!roadmapProfile) return;
+    setProfile((current) => ({
+      ...current,
+      email: getRoadmapProfileEmail(roadmapProfile),
+      timezone: roadmapProfile.timezone ?? current.timezone,
+    }));
+  }, [roadmapProfile?.email, roadmapProfile?.timezone, roadmapProfile?.googleAccount?.email]);
 
   const updateNotification = (key, value) => {
     setNotifications((prev) => ({ ...prev, [key]: value }));
@@ -128,6 +150,20 @@ export default function SettingsPage({ initialSection = "profile" }) {
   };
 
   const handleSave = () => {
+    setProfileError("");
+
+    if (roadmapProfile) {
+      const profileResult = updateProfile({
+        fullName: profile.name.trim() || null,
+        role: profile.role.trim() || null,
+        timezone: profile.timezone.trim(),
+      });
+      if (!profileResult.ok) {
+        setProfileError(profileResult.error);
+        return;
+      }
+    }
+
     setSaved(true);
     window.setTimeout(() => setSaved(false), 2500);
   };
@@ -183,17 +219,12 @@ export default function SettingsPage({ initialSection = "profile" }) {
 
         <div className="min-w-0 space-y-6">
           {activeSection === "profile" && (
-            <SettingsCard
-              title="Profile"
-              description="Your personal information visible across Over Drive OS."
-            >
-              <div className="flex flex-col gap-6 sm:flex-row sm:items-start">
-                <img
-                  src={USER_PROFILE.avatarUrl}
-                  alt={profile.name}
-                  className="h-20 w-20 shrink-0 rounded-full object-cover ring-4 ring-slate-100"
-                />
-                <div className="grid flex-1 gap-4 sm:grid-cols-2">
+            <>
+              <SettingsCard
+                title="Profile"
+                description="Your personal information visible across Over Drive OS."
+              >
+                <div className="grid gap-4 sm:grid-cols-2">
                   <Field label="Full name">
                     <input
                       type="text"
@@ -201,7 +232,9 @@ export default function SettingsPage({ initialSection = "profile" }) {
                       onChange={(e) => {
                         setProfile((p) => ({ ...p, name: e.target.value }));
                         setSaved(false);
+                        setProfileError("");
                       }}
+                      placeholder="Enter your full name"
                       className={inputClassName}
                     />
                   </Field>
@@ -212,7 +245,9 @@ export default function SettingsPage({ initialSection = "profile" }) {
                       onChange={(e) => {
                         setProfile((p) => ({ ...p, role: e.target.value }));
                         setSaved(false);
+                        setProfileError("");
                       }}
+                      placeholder="Enter your role"
                       className={inputClassName}
                     />
                   </Field>
@@ -220,12 +255,13 @@ export default function SettingsPage({ initialSection = "profile" }) {
                     <input
                       type="email"
                       value={profile.email}
-                      onChange={(e) => {
-                        setProfile((p) => ({ ...p, email: e.target.value }));
-                        setSaved(false);
-                      }}
-                      className={inputClassName}
+                      readOnly
+                      disabled
+                      className={cn(inputClassName, "cursor-default bg-slate-50 text-slate-600")}
                     />
+                    <p className="mt-1.5 text-xs text-slate-500">
+                      Synced from your Account page. Update email under Account settings.
+                    </p>
                   </Field>
                   <Field label="Timezone" className="sm:col-span-2">
                     <div className="relative">
@@ -236,20 +272,22 @@ export default function SettingsPage({ initialSection = "profile" }) {
                         onChange={(e) => {
                           setProfile((p) => ({ ...p, timezone: e.target.value }));
                           setSaved(false);
+                          setProfileError("");
                         }}
                         className={cn(inputClassName, "pl-9")}
                       />
                     </div>
                   </Field>
                 </div>
-              </div>
-              <button
-                type="button"
-                className="mt-4 text-xs font-medium text-indigo-600 hover:text-indigo-700"
-              >
-                Change profile photo
-              </button>
-            </SettingsCard>
+                {profileError ? (
+                  <p className="mt-4 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
+                    {profileError}
+                  </p>
+                ) : null}
+              </SettingsCard>
+
+              <ResetWorkspaceCard />
+            </>
           )}
 
           {activeSection === "notifications" && (
@@ -463,6 +501,8 @@ export default function SettingsPage({ initialSection = "profile" }) {
               </div>
             </SettingsCard>
           )}
+
+          {activeSection === "backup" && <WorkspaceCsvBackupCard />}
 
           {activeSection === "account" && (
             <>

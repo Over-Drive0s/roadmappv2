@@ -8,12 +8,15 @@
   "main": "electron/main.cjs",
   "scripts": {
     "dev": "vite --host --port 5173",
-    "dev:open": "vite --host --port 5173 --open",
+    "dev:clean": "lsof -ti:5173 | xargs kill -9 2>/dev/null || true; vite --host --port 5173",
+    "dev:open": "vite --host --port 5173 --open /roadmap.html",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "electron:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:5173 && electron .\"",
     "icons": "bash scripts/generate-mac-icon.sh",
-    "electron:build": "npm run build && npm run icons && electron-builder --mac dmg"
+    "electron:pack": "npm run build && npm run icons && electron-builder --mac dir",
+    "electron:dmg": "bash scripts/create-dmg.sh",
+    "electron:build": "npm run electron:pack && npm run electron:dmg"
   },
   "build": {
     "appId": "os.overdrive.app",
@@ -40,12 +43,14 @@
     }
   },
   "dependencies": {
+    "@react-oauth/google": "^0.13.5",
     "clsx": "^2.1.1",
     "html2canvas": "^1.4.1",
     "jspdf": "^4.2.1",
     "lucide-react": "^0.511.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
+    "react-router-dom": "^7.6.1",
     "recharts": "^2.15.4",
     "tailwind-merge": "^3.3.0"
   },

@@ -33,7 +33,8 @@ import TaskDetailModal from "./TaskDetailModal";
 import TaskDreamboardIcon from "./TaskDreamboardIcon";
 import TaskDueDisplay from "./TaskDueDisplay";
 
-const CURRENT_USER_NAME = "Enis";
+import { isTaskAssignedToUser } from "../../data/teamData";
+import { useCurrentUser } from "../../hooks/useCurrentUser";
 
 /** Shared desktop table layout — due date column reserved for full date + time */
 const TASK_TABLE_GRID =
@@ -131,6 +132,7 @@ export default function TasksPage({
 }) {
   const { tasks, addTask, updateTask, deleteTask } = useTasks();
   const { updateEvent, deleteEvent } = useCalendarEvents();
+  const currentUser = useCurrentUser();
   const [addOpen, setAddOpen] = useState(false);
   const [editingTask, setEditingTask] = useState(null);
   const [detailTask, setDetailTask] = useState(null);
@@ -156,9 +158,9 @@ export default function TasksPage({
       todo: open.filter((t) => t.status === "todo").length,
       inProgress: open.filter((t) => t.status === "in_progress").length,
       done: tasks.filter(isTaskComplete).length,
-      mine: tasks.filter((t) => t.assignee.name === CURRENT_USER_NAME).length,
+      mine: tasks.filter((task) => isTaskAssignedToUser(task, currentUser)).length,
     };
-  }, [tasks]);
+  }, [tasks, currentUser]);
 
   const filteredTasks = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -174,13 +176,13 @@ export default function TasksPage({
       }
 
       if (filter === "all") return !isDone;
-      if (filter === "mine") return task.assignee.name === CURRENT_USER_NAME && !isDone;
+      if (filter === "mine") return isTaskAssignedToUser(task, currentUser) && !isDone;
       if (filter === "done") return isDone;
       if (filter === "todo") return !isDone && task.status === "todo";
       if (filter === "in_progress") return !isDone && task.status === "in_progress";
       return true;
     });
-  }, [tasks, filter, projectFilter, search]);
+  }, [tasks, filter, projectFilter, search, currentUser]);
 
   const detailTaskLive = useMemo(
     () => (detailTask ? tasks.find((t) => t.id === detailTask.id) ?? detailTask : null),
@@ -401,6 +403,14 @@ export default function TasksPage({
             <p className="mt-1 max-w-sm text-xs text-slate-500">
               Try a different status, project, or search term.
             </p>
+            <button
+              type="button"
+              onClick={() => setAddOpen(true)}
+              className="mt-5 inline-flex items-center justify-center gap-1.5 rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-violet-600/20 transition hover:bg-violet-700"
+            >
+              <Plus className="h-4 w-4" />
+              Add task
+            </button>
           </div>
         ) : (
           <>

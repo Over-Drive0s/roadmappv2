@@ -1,8 +1,6 @@
 import { PROFILE_ENIS_URL, resolveAssetUrl } from "../lib/assetUrl";
 
-export const TASK_ASSIGNEES = [
-  { id: "enis", name: "Enis", initials: "E", color: "#6366f1", avatarUrl: PROFILE_ENIS_URL },
-];
+export const TASK_ASSIGNEES = [];
 
 export const TASK_PRIORITY_OPTIONS = [
   { id: "low", label: "Low" },
@@ -58,10 +56,13 @@ export function getTaskDueParts(task) {
 function resolveAssignee(fields, fallback) {
   const assignee =
     fields.assignee ??
-    TASK_ASSIGNEES.find((m) => m.id === fields.assigneeId) ??
+    (fields.assigneeId
+      ? TASK_ASSIGNEES.find((m) => m.id === fields.assigneeId)
+      : null) ??
     fallback;
-  if (!assignee) return fallback ?? TASK_ASSIGNEES[0];
+  if (!assignee) return fallback ?? null;
   return {
+    ...(assignee.id ? { id: assignee.id } : {}),
     name: assignee.name,
     initials: assignee.initials,
     color: assignee.color,
@@ -70,8 +71,16 @@ function resolveAssignee(fields, fallback) {
 }
 
 export function findTaskAssigneeId(assignee, assignees = TASK_ASSIGNEES) {
-  if (!assignee?.name) return assignees[0]?.id ?? "enis";
-  return assignees.find((m) => m.name === assignee.name)?.id ?? assignees[0]?.id ?? "enis";
+  if (!assignees.length) return "";
+  if (assignee?.id) {
+    const byId = assignees.find((member) => member.id === assignee.id);
+    if (byId) return byId.id;
+  }
+  if (assignee?.name) {
+    const byName = assignees.find((member) => member.name === assignee.name);
+    if (byName) return byName.id;
+  }
+  return assignees[0]?.id ?? "";
 }
 
 export function createPreTask(title) {

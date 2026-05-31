@@ -146,33 +146,4 @@ export const SYSTEM_STATUS_STYLES = {
 };
 
 /** @type {{ id: string; system: string; message: string; time: string; level: "info" | "warn" | "error" }[]} */
-export const SYSTEM_ACTIVITY = [
-  {
-    id: "a1",
-    system: "Lead Automation Engine",
-    message: "Webhook retry queue elevated — investigating latency",
-    time: "12 min ago",
-    level: "warn",
-  },
-  {
-    id: "a2",
-    system: "Finance Gateway",
-    message: "Maintenance window started for API v1.2.5 rollout",
-    time: "45 min ago",
-    level: "info",
-  },
-  {
-    id: "a3",
-    system: "CRM Core API",
-    message: "Deployment v2.14.0 completed successfully",
-    time: "2h ago",
-    level: "info",
-  },
-  {
-    id: "a4",
-    system: "Analytics Pipeline",
-    message: "Daily KPI rollup finished — 6 projects processed",
-    time: "4h ago",
-    level: "info",
-  },
-];
+export const SYSTEM_ACTIVITY = [];

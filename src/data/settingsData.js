@@ -1,19 +1,10 @@
-import { PROFILE_ENIS_URL } from "../lib/assetUrl";
-
-export const USER_PROFILE = {
-  name: "Enis",
-  role: "Product Manager",
-  email: "enis@overdrive.os",
-  avatarUrl: PROFILE_ENIS_URL,
-  timezone: "America/New_York",
-};
-
 export const SETTINGS_SECTIONS = [
   { id: "profile", label: "Profile" },
   { id: "notifications", label: "Notifications" },
   { id: "tags", label: "Event tags" },
   { id: "appearance", label: "Appearance" },
   { id: "workspace", label: "Workspace" },
+  { id: "backup", label: "Backup" },
   { id: "account", label: "Account" },
 ];
 

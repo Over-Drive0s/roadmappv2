@@ -50,9 +50,9 @@ export function TasksProvider({ children }) {
     setTasks((prev) => prev.filter((task) => task.id !== id));
   }, []);
 
-  const syncCalendarEvents = useCallback((events) => {
+  const syncCalendarEvents = useCallback((events, defaultAssignee = null) => {
     setTasks((prev) => {
-      const next = syncCalendarEventsIntoTasks(prev, events);
+      const next = syncCalendarEventsIntoTasks(prev, events, defaultAssignee);
       return shouldReplaceTasksFromCalendarSync(prev, next) ? next : prev;
     });
   }, []);

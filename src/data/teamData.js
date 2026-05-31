@@ -1,4 +1,6 @@
-import { PROFILE_ENIS_URL, resolveAssetUrl } from "../lib/assetUrl";
+import { resolveAssetUrl } from "../lib/assetUrl";
+import { formatPhoneNumber } from "../lib/roadmap/phoneFormat";
+import { getRoadmapProfileEmail, getRoadmapProfileFullName, getRoadmapProfileRole } from "./roadmapProfileStorage";
 
 export const TEAM_ROLE_FILTERS = [
   { id: "all", label: "All roles" },
@@ -31,25 +33,14 @@ export const TEAM_STATUS_OPTIONS = [
  *   workload: number;
  *   status: TeamMemberStatus;
  *   email: string;
+ *   phoneNumber?: string;
  *   notes?: string;
+ *   isCurrentUser?: boolean;
  * }} TeamMember
  */
 
 /** @type {TeamMember[]} */
-export const DEFAULT_TEAM_MEMBERS = [
-  {
-    id: "enis",
-    name: "Enis",
-    role: "Product Manager",
-    department: "leadership",
-    initials: "E",
-    color: "#6366f1",
-    avatarUrl: PROFILE_ENIS_URL,
-    workload: 0,
-    status: "available",
-    email: "enis@overdrive.os",
-  },
-];
+export const DEFAULT_TEAM_MEMBERS = [];
 
 /** @deprecated Use DEFAULT_TEAM_MEMBERS or TeamContext */
 export const TEAM_MEMBERS = DEFAULT_TEAM_MEMBERS;
@@ -115,6 +106,127 @@ export function pickMemberColor(members) {
   return available ?? MEMBER_COLORS[members.length % MEMBER_COLORS.length];
 }
 
+export function getCurrentUserTeamMemberId(profileId) {
+  return `user-${profileId}`;
+}
+
+/** Team member IDs tied to a saved roadmap profile (admin-only to add manually). */
+export function isProfileLinkedTeamMemberId(memberId) {
+  return typeof memberId === "string" && memberId.startsWith("user-");
+}
+
+/** @param {import("./roadmapProfileStorage").RoadmapProfile | null | undefined} profile */
+export function getRoadmapProfileContactFields(profile) {
+  if (!profile) {
+    return { name: "", email: "", phoneNumber: "", avatarUrl: "", username: "", role: "" };
+  }
+
+  const name = getRoadmapProfileFullName(profile);
+  const role = getRoadmapProfileRole(profile);
+  const email = getRoadmapProfileEmail(profile);
+  const phoneNumber = profile.phoneNumber ? formatPhoneNumber(profile.phoneNumber) : "";
+
+  return {
+    name,
+    email,
+    phoneNumber,
+    avatarUrl: profile.profilePicture ?? "",
+    username: profile.username,
+    role,
+  };
+}
+
+/** @param {TeamMember} member @param {string} profileId */
+export function isCurrentUserTeamMember(member, profileId) {
+  if (!member || !profileId) return false;
+  return member.id === getCurrentUserTeamMemberId(profileId) || Boolean(member.isCurrentUser);
+}
+
+/**
+ * @param {import("./roadmapProfileStorage").RoadmapProfile} profile
+ * @param {TeamMember | null | undefined} existingMember
+ * @param {TeamMember[]} otherMembers
+ * @returns {TeamMember}
+ */
+export function profileToTeamMember(profile, existingMember, otherMembers = []) {
+  const contact = getRoadmapProfileContactFields(profile);
+  const name = contact.name;
+  const role = contact.role;
+
+  const member = {
+    id: getCurrentUserTeamMemberId(profile.id),
+    name,
+    role,
+    department: existingMember?.department ?? "leadership",
+    initials: buildMemberInitials(name),
+    color: existingMember?.color ?? pickMemberColor(otherMembers),
+    workload: existingMember?.workload ?? 0,
+    status: existingMember?.status ?? "available",
+    email: contact.email,
+    isCurrentUser: true,
+    ...(existingMember?.notes ? { notes: existingMember.notes } : {}),
+    ...(contact.avatarUrl ? { avatarUrl: contact.avatarUrl } : {}),
+    ...(contact.phoneNumber ? { phoneNumber: contact.phoneNumber } : {}),
+  };
+  return member;
+}
+
+/**
+ * @param {TeamMember[]} members
+ * @param {import("./roadmapProfileStorage").RoadmapProfile | null | undefined} profile
+ * @returns {TeamMember[]}
+ */
+function teamMemberSnapshot(member) {
+  if (!member) return null;
+  return {
+    id: member.id,
+    name: member.name,
+    role: member.role,
+    department: member.department,
+    initials: member.initials,
+    color: member.color,
+    avatarUrl: member.avatarUrl ?? null,
+    workload: member.workload ?? 0,
+    status: member.status,
+    email: member.email,
+    phoneNumber: member.phoneNumber ?? null,
+    notes: member.notes ?? null,
+    isCurrentUser: Boolean(member.isCurrentUser),
+  };
+}
+
+export function areTeamMembersEqual(left, right) {
+  if (left === right) return true;
+  if (!Array.isArray(left) || !Array.isArray(right) || left.length !== right.length) return false;
+  return left.every(
+    (member, index) =>
+      JSON.stringify(teamMemberSnapshot(member)) === JSON.stringify(teamMemberSnapshot(right[index]))
+  );
+}
+
+export function mergeCurrentUserIntoMembers(members, profile) {
+  if (!profile) return members;
+
+  const userId = getCurrentUserTeamMemberId(profile.id);
+  const existing = members.find((member) => member.id === userId || member.isCurrentUser);
+  const others = members.filter((member) => member.id !== userId && !member.isCurrentUser);
+  const userMember = profileToTeamMember(profile, existing, others);
+  const next = [userMember, ...others];
+
+  if (areTeamMembersEqual(members, next)) {
+    return members;
+  }
+
+  return next;
+}
+
+/** @param {{ assignee?: { id?: string; name?: string } }} task @param {{ displayName: string; memberId?: string | null }} user */
+export function isTaskAssignedToUser(task, user) {
+  if (!task?.assignee || !user?.displayName) return false;
+  if (user.memberId && task.assignee.id === user.memberId) return true;
+  return task.assignee.name === user.displayName;
+}
+
 /**
  * @param {{
  *   name: string;
@@ -123,14 +235,18 @@ export function pickMemberColor(members) {
  *   department: string;
  *   status?: TeamMemberStatus;
  *   notes?: string;
+ *   avatarUrl?: string;
+ *   phoneNumber?: string;
+ *   id?: string;
  * }} fields
  * @param {TeamMember[]} existingMembers
  * @returns {TeamMember}
  */
 export function createTeamMember(fields, existingMembers) {
   const name = fields.name.trim();
+  const id = fields.id?.trim() || getNextTeamMemberId(name, existingMembers);
   return {
-    id: getNextTeamMemberId(name, existingMembers),
+    id,
     name,
     role: fields.role.trim(),
     department: fields.department,
@@ -140,7 +256,53 @@ export function createTeamMember(fields, existingMembers) {
     status: fields.status ?? "available",
     email: buildMemberEmail(name, fields.email),
     ...(fields.notes?.trim() ? { notes: fields.notes.trim() } : {}),
+    ...(fields.avatarUrl ? { avatarUrl: fields.avatarUrl } : {}),
+    ...(fields.phoneNumber?.trim() ? { phoneNumber: fields.phoneNumber.trim() } : {}),
   };
+}
+
+/**
+ * @param {TeamMember} member
+ * @param {{
+ *   name?: string;
+ *   email?: string;
+ *   role?: string;
+ *   department?: string;
+ *   status?: TeamMemberStatus;
+ *   notes?: string;
+ *   avatarUrl?: string;
+ *   phoneNumber?: string;
+ * }} fields
+ * @returns {TeamMember}
+ */
+export function updateTeamMember(member, fields) {
+  const name = fields.name?.trim() || member.name;
+  const next = {
+    ...member,
+    name,
+    role: fields.role?.trim() || member.role,
+    department: fields.department ?? member.department,
+    status: fields.status ?? member.status,
+    email: buildMemberEmail(name, fields.email ?? member.email),
+    initials: buildMemberInitials(name),
+  };
+
+  if (fields.notes !== undefined) {
+    if (fields.notes?.trim()) next.notes = fields.notes.trim();
+    else delete next.notes;
+  }
+
+  if (fields.phoneNumber !== undefined) {
+    if (fields.phoneNumber?.trim()) next.phoneNumber = fields.phoneNumber.trim();
+    else delete next.phoneNumber;
+  }
+
+  if (fields.avatarUrl !== undefined) {
+    if (fields.avatarUrl) next.avatarUrl = fields.avatarUrl;
+    else delete next.avatarUrl;
+  }
+
+  return next;
 }
 
 /** @param {TeamMember} member */

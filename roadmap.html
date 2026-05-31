@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/app-icon.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <meta
+      name="description"
+      content="Over Drive Roadmap — plan, track, and ship operational systems across phases and milestones."
+    />
+    <title>Over Drive Roadmap</title>
+  </head>
+  <body>
+    <script>
+      if (!window.location.hash || window.location.hash === "#/" || window.location.hash === "#") {
+        window.location.replace(`${window.location.pathname}${window.location.search}#/login`)
+      }
+    </script>
+    <div id="root">
+      <p style="padding: 2rem; font-family: system-ui, sans-serif; color: #64748b">
+        Loading Over Drive OS…
+      </p>
+    </div>
+    <script type="module" src="./src/roadmap-main.jsx"></script>
+    <script>
+      window.setTimeout(function () {
+        var root = document.getElementById("root");
+        if (!root || root.dataset.booted === "1") return;
+        if ((root.textContent || "").indexOf("Loading Over Drive OS") >= 0) {
+          root.innerHTML =
+            '<div style="padding:2rem;font-family:system-ui,sans-serif;max-width:32rem">' +
+            '<p style="color:#b91c1c;font-weight:600;margin:0 0 0.5rem">App failed to start</p>' +
+            '<p style="color:#475569;margin:0 0 1rem;font-size:14px">The JavaScript bundle did not load. Hard refresh (Cmd+Shift+R) or restart the dev server.</p>' +
+            '<p style="color:#64748b;margin:0;font-size:13px">Open <a href="./roadmap.html#/login">roadmap.html#/login</a></p>' +
+            "</div>";
+        }
+      }, 12000);
+    </script>
+  </body>
+</html>

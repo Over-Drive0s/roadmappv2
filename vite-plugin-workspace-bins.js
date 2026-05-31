@@ -34,14 +34,26 @@ async function readBody(req) {
   return raw ? JSON.parse(raw) : null;
 }
 
+function resolveProfileId(url) {
+  const profileId = url.searchParams.get("profileId");
+  if (!profileId || !/^[a-zA-Z0-9-]+$/.test(profileId)) return null;
+  return profileId;
+}
+
+function resolveWorkspaceRoot(root, url) {
+  const profileId = resolveProfileId(url);
+  if (!profileId) return root;
+  return path.join(root, "profiles", profileId);
+}
+
 export function workspaceBinsPlugin(binsRoot) {
   const root = path.resolve(binsRoot);
 
-  async function ensureRoot() {
-    await fs.mkdir(path.join(root, ATTACHMENTS_BIN_DIR), { recursive: true });
+  async function ensureRoot(workspaceRoot) {
+    await fs.mkdir(path.join(workspaceRoot, ATTACHMENTS_BIN_DIR), { recursive: true });
     for (const binId of WORKSPACE_BIN_IDS) {
       const rel = BIN_PATH_BY_ID[binId];
-      if (rel) await fs.mkdir(path.dirname(path.join(root, rel)), { recursive: true });
+      if (rel) await fs.mkdir(path.dirname(path.join(workspaceRoot, rel)), { recursive: true });
     }
   }
 
@@ -52,40 +64,61 @@ export function workspaceBinsPlugin(binsRoot) {
         if (!req.url?.startsWith("/api/bins")) return next();
 
         try {
-          await ensureRoot();
           const url = new URL(req.url, "http://localhost");
           const pathname = url.pathname;
+          const workspaceRoot = resolveWorkspaceRoot(root, url);
+
+          await ensureRoot(workspaceRoot);
 
           if (req.method === "GET" && pathname === "/api/bins/bootstrap") {
-            const payload = { binsRoot: root };
+            if (!resolveProfileId(url)) {
+              return sendJson(res, 400, { error: "profileId required" });
+            }
+            const payload = { binsRoot: workspaceRoot, profileId: resolveProfileId(url) };
             for (const binId of WORKSPACE_BIN_IDS) {
               const rel = BIN_PATH_BY_ID[binId];
-              payload[binId] = rel ? await readJsonFile(path.join(root, rel)) : null;
+              payload[binId] = rel ? await readJsonFile(path.join(workspaceRoot, rel)) : null;
             }
             return sendJson(res, 200, payload);
           }
 
           if (req.method === "PUT" && pathname.startsWith("/api/bins/")) {
+            if (!resolveProfileId(url)) {
+              return sendJson(res, 400, { error: "profileId required" });
+            }
             const binId = decodeURIComponent(pathname.slice("/api/bins/".length));
             const rel = BIN_PATH_BY_ID[binId];
             if (!rel) return sendJson(res, 404, { error: "Unknown bin" });
             const body = await readBody(req);
-            await writeJsonFile(path.join(root, rel), body);
+            await writeJsonFile(path.join(workspaceRoot, rel), body);
+            return sendJson(res, 200, { ok: true });
+          }
+
+          if (req.method === "POST" && pathname === "/api/bins/delete-profile-workspace") {
+            if (!resolveProfileId(url)) {
+              return sendJson(res, 400, { error: "profileId required" });
+            }
+            const profileId = resolveProfileId(url);
+            const profileRoot = path.join(root, "profiles", profileId);
+            await fs.rm(profileRoot, { recursive: true, force: true });
             return sendJson(res, 200, { ok: true });
           }
 
           if (req.method === "POST" && pathname === "/api/bins/reset") {
+            if (!resolveProfileId(url)) {
+              return sendJson(res, 400, { error: "profileId required" });
+            }
             for (const binId of WORKSPACE_BIN_IDS) {
               const rel = BIN_PATH_BY_ID[binId];
               if (!rel) continue;
-              const filePath = path.join(root, rel);
+              const filePath = path.join(workspaceRoot, rel);
               try {
                 await fs.unlink(filePath);
               } catch (err) {
                 if (err?.code !== "ENOENT") throw err;
               }
             }
-            const attachmentsDir = path.join(root, ATTACHMENTS_BIN_DIR);
+            const attachmentsDir = path.join(workspaceRoot, ATTACHMENTS_BIN_DIR);
             try {
               const entries = await fs.readdir(attachmentsDir);
               await Promise.all(

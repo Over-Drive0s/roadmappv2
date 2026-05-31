@@ -11,9 +11,7 @@ import {
 import AttachmentInput, { canPreviewAttachment } from "../ui/AttachmentInput";
 import { useFiles } from "../../context/FilesContext";
 import { formatFileSourceLabel } from "../../data/filesData";
-import TaskAttachmentPreviewModal, {
-  TaskAttachmentGallery,
-} from "../tasks/TaskAttachmentPreview";
+import TaskAttachmentPreviewModal from "../tasks/TaskAttachmentPreview";
 
 function cn(...classes) {
   return classes.filter(Boolean).join(" ");
@@ -125,13 +123,7 @@ export default function FileManagerPage() {
           </div>
 
           {filtered.length > 0 ? (
-            <>
-              <TaskAttachmentGallery
-                attachments={filtered}
-                size="lg"
-                onPreview={setPreview}
-              />
-              <ul className="mt-6 space-y-2">
+              <ul className="space-y-2">
                 {filtered.map((file) => {
                   const previewable = canPreviewAttachment(file);
                   return (
@@ -139,12 +131,8 @@ export default function FileManagerPage() {
                       key={file.id}
                       className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50/50 px-3 py-3 sm:flex-nowrap"
                     >
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-white ring-1 ring-slate-200">
-                        {file.type?.startsWith("image/") && file.dataUrl ? (
-                          <img src={file.dataUrl} alt="" className="h-full w-full object-cover" />
-                        ) : (
-                          <FileText className="h-4 w-4 text-sky-600" />
-                        )}
+                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-white ring-1 ring-slate-200">
+                        <FileText className="h-4 w-4 text-sky-600" />
                       </div>
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-semibold text-slate-900">{file.name}</p>
@@ -191,7 +179,6 @@ export default function FileManagerPage() {
                   );
                 })}
               </ul>
-            </>
           ) : (
             <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-slate-50/60 px-6 py-16 text-center">
               <Upload className="mb-3 h-8 w-8 text-slate-300" />

@@ -21,17 +21,17 @@ if [[ ! -f "$SOURCE" ]]; then
 fi
 
 mkdir -p "$ICONSET"
-CROP="$ROOT/build/icon-crop.png"
 MASTER="$ROOT/build/icon-1024.png"
+PUBLIC_ICON="$ROOT/public/app-icon.png"
 
-# Use the O mark only so the icon stays readable at small sizes.
-sips -c 560 560 "$SOURCE" --cropOffset 20 232 --out "$CROP" >/dev/null
-sips -z 1024 1024 "$CROP" --out "$MASTER" >/dev/null
+# Pad to a square canvas so the mark stays centered at all icon sizes.
+sips -s format png --padToHeightWidth 1024 1024 "$SOURCE" --padColor FFFFFF --out "$MASTER" >/dev/null
+sips -s format png -z 512 512 "$MASTER" --out "$PUBLIC_ICON" >/dev/null
 
 for size in 16 32 128 256 512; do
-  sips -z "$size" "$size" "$MASTER" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+  sips -s format png -z "$size" "$size" "$MASTER" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
   double=$((size * 2))
-  sips -z "$double" "$double" "$MASTER" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+  sips -s format png -z "$double" "$double" "$MASTER" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
 done
 
 iconutil -c icns "$ICONSET" -o "$OUTPUT"

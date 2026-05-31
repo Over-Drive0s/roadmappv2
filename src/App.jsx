@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { createPortal } from "react-dom";
 import {
   BarChart3,
   Bell,
   Boxes,
   Calendar,
   CalendarDays,
-  CalendarRange,
   Check,
   CheckCircle2,
   CheckSquare,
@@ -20,7 +20,6 @@ import {
   Map as MapIcon,
   MessageSquare,
   Plus,
-  Search,
   Settings,
   Smartphone,
   Sparkles,
@@ -37,15 +36,17 @@ import {
 } from "lucide-react";
 import {
   Cell,
-  Line,
-  LineChart,
   Pie,
   PieChart,
   ResponsiveContainer,
 } from "recharts";
 import { LoadingProvider } from "./context/LoadingContext";
+import { useRoadmapAuth } from "./context/RoadmapAuthContext";
+import { getRoadmapProfileFullName, getRoadmapProfileRole } from "./data/roadmapProfileStorage";
+import RoadmapProfileAvatar from "./components/roadmap/RoadmapProfileAvatar";
 import { CalendarEventsProvider, useCalendarEvents } from "./context/CalendarEventsContext";
 import CalendarTasksSync from "./components/tasks/CalendarTasksSync";
+import DashboardHeaderSearch from "./components/search/DashboardHeaderSearch";
 import { TeamProvider } from "./context/TeamContext";
 import { FilesProvider } from "./context/FilesContext";
 import { TasksProvider, useTasks } from "./context/TasksContext";
@@ -58,6 +59,7 @@ import ReportsPage from "./components/reports/ReportsPage";
 import TeamPage from "./components/team/TeamPage";
 import MessagesPage from "./components/messages/MessagesPage";
 import SettingsPage from "./components/settings/SettingsPage";
+import { RoadmapAccountContent } from "./pages/roadmap/RoadmapAccount";
 import SystemsPage from "./components/systems/SystemsPage";
 import FileBinWidget from "./components/file-manager/FileBinWidget";
 import FileManagerPage from "./components/file-manager/FileManagerPage";
@@ -71,7 +73,10 @@ import ProjectsPage from "./components/projects/ProjectsPage";
 import CompletedProjectsPage from "./components/projects/CompletedProjectsPage";
 import ProjectTaskChecklist from "./components/projects/ProjectTaskChecklist";
 import RoadmapProgressBar from "./components/roadmap/RoadmapProgressBar";
-import { LOGO_URL, PROFILE_ENIS_URL } from "./lib/assetUrl";
+import { LOGO_URL } from "./lib/assetUrl";
+import { isTaskAssignedToUser } from "./data/teamData";
+import { PROJECT_TEMPLATE_MODES } from "./data/uiUxRoadmapTemplate";
+import { useCurrentUser } from "./hooks/useCurrentUser";
 import { clearOnboardingDraft, loadProjectBin, saveProjectBin } from "./lib/projectStorage";
 import { readPageFromHash, writePageToHash } from "./lib/appNavigation";
 import {
@@ -122,13 +127,6 @@ const phases = [
   { id: "scale", label: "Phase 4: Scale & Optimize", shortLabel: "Scale & Optimize" },
 ];
 
-function calcProjectProgress(phasePercents) {
-  const segment = 100 / phasePercents.length;
-  return Math.round(
-    phasePercents.reduce((sum, p) => sum + (p / 100) * segment, 0)
-  );
-}
-
 const roadmapProjects = [];
 
 const PROJECT_TYPE_ICONS = {
@@ -151,8 +149,6 @@ function projectToRoadmapRow(project) {
     createdAt: project.createdAt,
   };
 }
-
-const seedProjects = () => [];
 
 const PHASE_INFO_COLORS = {
   foundation: "#4f46e5",
@@ -253,16 +249,25 @@ function computeProjectSummary(projects) {
   };
 }
 
-const workloadSparkline = [
-  { v: 62 }, { v: 68 }, { v: 65 }, { v: 70 }, { v: 72 }, { v: 69 }, { v: 72 },
-];
+const seedProjects = () => [];
 
 const mobileNavItems = [
   { id: "dashboard", icon: LayoutDashboard, label: "Home" },
   { id: "roadmap", icon: MapIcon, label: "Roadmap" },
   { id: "tasks", icon: CheckSquare, label: "Tasks" },
   { id: "calendar", icon: Calendar, label: "Calendar" },
+];
+
+const mobileMoreNavItems = [
   { id: "projects", icon: FolderKanban, label: "Projects" },
+  { id: "file-manager", icon: FolderOpen, label: "Files" },
+  { id: "team", icon: Users, label: "Team" },
+  { id: "messages", icon: MessageSquare, label: "Messages" },
+  { id: "reports", icon: BarChart3, label: "Reports" },
+  { id: "dreamboard", icon: Sparkles, label: "Dreamboard" },
+  { id: "systems", icon: Cpu, label: "Systems" },
+  { id: "settings", icon: Settings, label: "Settings" },
+  { id: "account", icon: User, label: "Account" },
 ];
 
 // ─── UI Primitives ─────────────────────────────────────────────────────────────
@@ -295,11 +300,27 @@ function Card({ children, className, title, titleClassName, action, subtitle, co
 
 // ─── Layout ────────────────────────────────────────────────────────────────────
 
-const CURRENT_USER = {
-  name: "Enis",
-  role: "Product Manager",
-  avatarUrl: PROFILE_ENIS_URL,
-};
+function useAppUser() {
+  const { profile } = useRoadmapAuth();
+  if (!profile) {
+    return {
+      name: "User",
+      role: "",
+      username: "",
+      profilePicture: null,
+      avatarUrl: null,
+    };
+  }
+  return {
+    name:
+      getRoadmapProfileFullName(profile, { fallbackToUsername: false }) ||
+      `@${profile.username}`,
+    role: getRoadmapProfileRole(profile),
+    username: profile.username,
+    profilePicture: profile.profilePicture,
+    avatarUrl: profile.profilePicture ?? null,
+  };
+}
 
 function BrandLogo({ className }) {
   return (
@@ -311,82 +332,113 @@ function BrandLogo({ className }) {
   );
 }
 
-function ProfileMenu({ onNavigate }) {
+function ProfileMenu({ onNavigate, onLogout, user }) {
+  const { profile } = useRoadmapAuth();
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
 
-  useEffect(() => {
-    if (!open) return undefined;
-    const handleClickOutside = (event) => {
-      if (!menuRef.current?.contains(event.target)) {
-        setOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [open]);
+  const workspaceLabel = profile?.workspaceName?.trim() || "Workspace name";
 
   const handleSelect = (section) => {
     onNavigate("settings", { section });
     setOpen(false);
   };
 
+  useEffect(() => {
+    if (!open) return undefined;
+    const onPointerDown = (event) => {
+      if (!menuRef.current?.contains(event.target)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [open]);
+
   return (
     <div ref={menuRef} className="relative">
-      <button
-        type="button"
-        onClick={() => setOpen((prev) => !prev)}
-        aria-expanded={open}
-        aria-haspopup="menu"
-        className="flex w-full items-center gap-3 rounded-lg border border-slate-100 p-3 text-left transition hover:border-slate-200 hover:bg-slate-50"
-      >
-        <img
-          src={CURRENT_USER.avatarUrl}
-          alt={CURRENT_USER.name}
-          className="h-9 w-9 shrink-0 rounded-full object-cover ring-2 ring-white"
-        />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-slate-900">{CURRENT_USER.name}</p>
-          <p className="truncate text-xs text-slate-500">{CURRENT_USER.role}</p>
-        </div>
-        <ChevronDown
-          className={cn(
-            "h-4 w-4 shrink-0 text-slate-400 transition-transform",
-            open && "rotate-180"
-          )}
-        />
-      </button>
-
       {open && (
-        <div
-          role="menu"
-          className="absolute bottom-full left-0 right-0 z-20 mb-1 overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
-        >
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => handleSelect("account")}
-            className="flex w-full items-center gap-2.5 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+        <div className="absolute bottom-full left-0 right-0 z-20 pb-1">
+          <div
+            role="menu"
+            className="overflow-hidden rounded-lg border border-slate-200 bg-white py-1 shadow-lg"
           >
-            <User className="h-4 w-4 shrink-0 text-slate-500" />
-            Account
-          </button>
-          <button
-            type="button"
-            role="menuitem"
-            onClick={() => handleSelect("profile")}
-            className="flex w-full items-center gap-2.5 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-          >
-            <Settings className="h-4 w-4 shrink-0 text-slate-500" />
-            Settings
-          </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onNavigate("account");
+              }}
+              className="flex w-full items-center gap-2.5 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            >
+              <User className="h-4 w-4 shrink-0 text-slate-500" />
+              Account
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => handleSelect("profile")}
+              className="flex w-full items-center gap-2.5 px-3 py-2 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
+            >
+              <Settings className="h-4 w-4 shrink-0 text-slate-500" />
+              Settings
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                setOpen(false);
+                onLogout?.();
+              }}
+              className="flex w-full items-center gap-2.5 px-3 py-2 text-sm font-medium text-red-600 transition hover:bg-red-50"
+            >
+              Log out
+            </button>
+          </div>
         </div>
       )}
+
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-haspopup="menu"
+        onClick={() => setOpen((value) => !value)}
+        className="w-full rounded-lg border border-slate-200 p-3 text-left transition hover:border-slate-300 hover:bg-slate-50/80"
+      >
+        <div className="flex items-start gap-3">
+          {user.username ? (
+            <RoadmapProfileAvatar
+              username={user.username}
+              profilePicture={user.profilePicture}
+              size="sm"
+            />
+          ) : (
+            <RoadmapProfileAvatar
+              username={user.name}
+              profilePicture={user.profilePicture}
+              size="sm"
+            />
+          )}
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-semibold text-slate-900">{user.name}</p>
+            {user.role ? (
+              <p className="truncate text-[11px] text-slate-500">{user.role}</p>
+            ) : null}
+            <p className="mt-0.5 truncate text-[11px] text-slate-500">{workspaceLabel}</p>
+          </div>
+          <ChevronDown
+            aria-hidden
+            className={cn(
+              "mt-0.5 h-4 w-4 shrink-0 text-slate-400 transition-transform",
+              open && "rotate-180"
+            )}
+          />
+        </div>
+      </button>
     </div>
   );
 }
 
-function Sidebar({ activePage, onNavigate }) {
+function Sidebar({ activePage, onNavigate, onLogout, user }) {
   return (
     <aside className="scrollbar-hidden hidden h-full w-64 shrink-0 flex-col overflow-y-auto border-r border-slate-200 bg-white px-3 pb-5 pt-0 lg:flex">
       <div className="-mt-3 mb-2 flex w-full justify-start bg-white px-0">
@@ -416,7 +468,11 @@ function Sidebar({ activePage, onNavigate }) {
         })}
 
         <div className="mt-8 border-t border-slate-100 pt-6">
-          <ProfileMenu onNavigate={onNavigate} />
+          <ProfileMenu
+            onNavigate={onNavigate}
+            onLogout={onLogout}
+            user={user}
+          />
 
           <button
             type="button"
@@ -457,8 +513,21 @@ function DateTimeDisplay() {
   const [now, setNow] = useState(() => new Date());
 
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 60_000);
-    return () => clearInterval(id);
+    const tick = () => setNow(new Date());
+    tick();
+
+    const msUntilNextMinute = (60 - new Date().getSeconds()) * 1000;
+    let intervalId;
+
+    const timeoutId = window.setTimeout(() => {
+      tick();
+      intervalId = window.setInterval(tick, 60_000);
+    }, msUntilNextMinute);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+      if (intervalId) window.clearInterval(intervalId);
+    };
   }, []);
 
   const formatted = now.toLocaleString(undefined, {
@@ -475,50 +544,30 @@ function DateTimeDisplay() {
   );
 }
 
-function Header({ onOpenOnboarding, isBlankWorkspace }) {
+function Header({ onOpenOnboarding, userName, projects, onNavigate }) {
   return (
     <header className="shrink-0 flex flex-col gap-4 border-b border-slate-200 bg-white px-4 py-5 sm:flex-row sm:items-center sm:justify-between sm:px-6 lg:px-8">
       <div>
         <h1 className="text-xl font-bold text-slate-900 sm:text-2xl">
-          Welcome back, {CURRENT_USER.name}!
+          Welcome back, {userName}!
         </h1>
-        {isBlankWorkspace ? (
-          <p className="mt-0.5 text-sm text-slate-500">
-            Your workspace is empty — add a project to get started.
-          </p>
-        ) : (
-          <DateTimeDisplay />
-        )}
+        <DateTimeDisplay />
       </div>
       <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-        <button
-          type="button"
-          className="flex h-9 items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 text-sm text-slate-600"
-        >
-          <CalendarRange className="h-4 w-4 text-slate-400" />
-          <span className="hidden sm:inline">May 12 – May 18, 2024</span>
-          <span className="sm:hidden">May 2024</span>
-          <ChevronDown className="h-4 w-4 text-slate-400" />
-        </button>
-        <button
-          type="button"
-          aria-label="Search"
-          className="flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50"
-        >
-          <Search className="h-4 w-4" />
-        </button>
+        <DashboardHeaderSearch projects={projects} onNavigate={onNavigate} />
         <button
           type="button"
           aria-label="Notifications"
-          className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50"
+          disabled
+          title="Notifications coming soon"
+          className="relative flex h-9 w-9 cursor-not-allowed items-center justify-center rounded-lg border border-slate-200 text-slate-400 opacity-60"
         >
           <Bell className="h-4 w-4" />
-          <span className="absolute right-2 top-2 h-1.5 w-1.5 rounded-full bg-red-500 ring-2 ring-white" />
         </button>
         <button
           type="button"
           onClick={onOpenOnboarding}
-          className="flex h-9 items-center gap-1.5 rounded-lg bg-blue-600 px-4 text-sm font-semibold text-white hover:bg-blue-700"
+          className="flex h-9 items-center gap-1.5 rounded-lg bg-indigo-600 px-4 text-sm font-semibold text-white hover:bg-indigo-700"
         >
           <Plus className="h-4 w-4" />
           New
@@ -529,27 +578,92 @@ function Header({ onOpenOnboarding, isBlankWorkspace }) {
 }
 
 function MobileNav({ activePage, onNavigate }) {
+  const [moreOpen, setMoreOpen] = useState(false);
+  const moreActive = mobileMoreNavItems.some((item) => item.id === activePage);
+
+  useEffect(() => {
+    if (!moreOpen) return undefined;
+    const onPointerDown = () => setMoreOpen(false);
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [moreOpen]);
+
   return (
-    <nav className="absolute bottom-0 left-0 right-0 z-50 flex items-center justify-around border-t border-slate-200 bg-white px-2 py-2 lg:hidden">
-      {mobileNavItems.map((item) => {
-        const Icon = item.icon;
-        const isActive = activePage === item.id;
-        return (
-          <button
-            key={item.label}
-            type="button"
-            onClick={() => onNavigate(item.id)}
-            className={cn(
-              "flex flex-col items-center gap-0.5 rounded-lg px-2 py-1",
-              isActive ? "text-indigo-600" : "text-slate-400"
-            )}
-          >
-            <Icon className="h-5 w-5" strokeWidth={isActive ? 2.5 : 2} />
-            <span className="text-[9px] font-medium">{item.label}</span>
-          </button>
-        );
-      })}
-    </nav>
+    <>
+      {moreOpen ? (
+        <div
+          className="absolute inset-0 z-40 bg-slate-900/20 lg:hidden"
+          onMouseDown={() => setMoreOpen(false)}
+        />
+      ) : null}
+      <nav className="absolute bottom-0 left-0 right-0 z-50 border-t border-slate-200 bg-white px-2 py-2 lg:hidden">
+        <div className="flex items-center justify-around">
+          {mobileNavItems.map((item) => {
+            const Icon = item.icon;
+            const isActive = activePage === item.id;
+            return (
+              <button
+                key={item.label}
+                type="button"
+                onClick={() => onNavigate(item.id)}
+                className={cn(
+                  "flex flex-col items-center gap-0.5 rounded-lg px-2 py-1",
+                  isActive ? "text-indigo-600" : "text-slate-400"
+                )}
+              >
+                <Icon className="h-5 w-5" strokeWidth={isActive ? 2.5 : 2} />
+                <span className="text-[9px] font-medium">{item.label}</span>
+              </button>
+            );
+          })}
+          <div className="relative">
+            <button
+              type="button"
+              aria-expanded={moreOpen}
+              onMouseDown={(event) => event.stopPropagation()}
+              onClick={() => setMoreOpen((open) => !open)}
+              className={cn(
+                "flex flex-col items-center gap-0.5 rounded-lg px-2 py-1",
+                moreOpen || moreActive ? "text-indigo-600" : "text-slate-400"
+              )}
+            >
+              <Boxes className="h-5 w-5" strokeWidth={moreOpen || moreActive ? 2.5 : 2} />
+              <span className="text-[9px] font-medium">More</span>
+            </button>
+            {moreOpen ? (
+              <div
+                className="absolute bottom-full right-0 z-50 mb-2 w-44 overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+                onMouseDown={(event) => event.stopPropagation()}
+              >
+                {mobileMoreNavItems.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activePage === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => {
+                        onNavigate(item.id);
+                        setMoreOpen(false);
+                      }}
+                      className={cn(
+                        "flex w-full items-center gap-2.5 px-3 py-2.5 text-left text-sm font-medium transition",
+                        isActive
+                          ? "bg-indigo-50 text-indigo-700"
+                          : "text-slate-700 hover:bg-slate-50"
+                      )}
+                    >
+                      <Icon className="h-4 w-4 shrink-0" />
+                      {item.label}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+          </div>
+        </div>
+      </nav>
+    </>
   );
 }
 
@@ -674,7 +788,125 @@ function GanttChart({ projects, onUpdateProject, fullPage = false, onViewFullRoa
   );
 }
 
-function RoadmapPage({ projects, onUpdateProject }) {
+function NewProjectMenuButton({ onNewProject }) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [menuStyle, setMenuStyle] = useState(null);
+  const buttonRef = useRef(null);
+  const menuRef = useRef(null);
+
+  const updateMenuPosition = useCallback(() => {
+    const button = buttonRef.current;
+    if (!button) return;
+
+    const rect = button.getBoundingClientRect();
+    const menuWidth = 208;
+    const menuHeight = PROJECT_TEMPLATE_MODES.length * 44 + 8;
+    const gap = 6;
+    let top = rect.bottom + gap;
+
+    if (top + menuHeight > window.innerHeight - 8) {
+      top = Math.max(8, rect.top - menuHeight - gap);
+    }
+
+    const left = Math.min(
+      Math.max(8, rect.right - menuWidth),
+      window.innerWidth - menuWidth - 8
+    );
+
+    setMenuStyle({
+      position: "fixed",
+      top,
+      left,
+      width: menuWidth,
+      zIndex: 300,
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+
+    updateMenuPosition();
+    const onScrollOrResize = () => updateMenuPosition();
+    window.addEventListener("scroll", onScrollOrResize, true);
+    window.addEventListener("resize", onScrollOrResize);
+    return () => {
+      window.removeEventListener("scroll", onScrollOrResize, true);
+      window.removeEventListener("resize", onScrollOrResize);
+    };
+  }, [menuOpen, updateMenuPosition]);
+
+  useEffect(() => {
+    if (!menuOpen) return undefined;
+    const onPointerDown = (event) => {
+      if (
+        buttonRef.current?.contains(event.target) ||
+        menuRef.current?.contains(event.target)
+      ) {
+        return;
+      }
+      setMenuOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    return () => document.removeEventListener("mousedown", onPointerDown);
+  }, [menuOpen]);
+
+  const pick = (templateMode) => {
+    onNewProject(templateMode);
+    setMenuOpen(false);
+  };
+
+  const toggleMenu = () => {
+    setMenuOpen((open) => {
+      const next = !open;
+      if (next) {
+        requestAnimationFrame(updateMenuPosition);
+      }
+      return next;
+    });
+  };
+
+  return (
+    <>
+      <button
+        ref={buttonRef}
+        type="button"
+        onClick={toggleMenu}
+        aria-expanded={menuOpen}
+        aria-haspopup="menu"
+        className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-indigo-600 px-4 py-2.5 text-sm font-semibold text-white shadow-lg shadow-indigo-600/20 transition hover:bg-indigo-700"
+      >
+        <Plus className="h-4 w-4" />
+        New project
+        <ChevronDown className={cn("h-4 w-4 transition", menuOpen && "rotate-180")} />
+      </button>
+      {menuOpen && menuStyle
+        ? createPortal(
+            <div
+              ref={menuRef}
+              role="menu"
+              style={menuStyle}
+              className="overflow-hidden rounded-xl border border-slate-200 bg-white py-1 shadow-lg"
+            >
+              {PROJECT_TEMPLATE_MODES.map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  role="menuitem"
+                  onClick={() => pick(mode.id)}
+                  className="flex w-full px-4 py-2.5 text-left text-sm font-medium text-slate-700 transition hover:bg-indigo-50 hover:text-indigo-800"
+                >
+                  {mode.label}
+                </button>
+              ))}
+            </div>,
+            document.body
+          )
+        : null}
+    </>
+  );
+}
+
+function RoadmapPage({ projects, onUpdateProject, onNewProject }) {
   const activeProjects = useMemo(
     () =>
       filterActiveProjects(projects).sort(
@@ -724,6 +956,23 @@ function RoadmapPage({ projects, onUpdateProject }) {
 
   return (
     <div className="mx-auto max-w-[1600px] space-y-8">
+      <div className="rounded-2xl border border-slate-200/80 bg-gradient-to-br from-white via-white to-indigo-50/40 p-6 shadow-sm">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="min-w-0">
+            <div className="mb-3 inline-flex items-center gap-2 rounded-xl bg-indigo-500/10 px-4 py-2 text-base font-bold text-indigo-700 ring-1 ring-indigo-500/15">
+              <MapIcon className="h-5 w-5" />
+              Roadmap
+            </div>
+            <p className="max-w-xl text-sm font-semibold text-slate-600">
+              Gantt timeline and phase tasks across active projects.
+            </p>
+          </div>
+          <div className="shrink-0 self-start sm:self-center">
+            <NewProjectMenuButton onNewProject={onNewProject} />
+          </div>
+        </div>
+      </div>
+
       <GanttChart
         fullPage
         projects={projects}
@@ -754,9 +1003,17 @@ function RoadmapPage({ projects, onUpdateProject }) {
         )}
 
         {activeProjects.length === 0 ? (
-          <p className="rounded-xl border border-dashed border-slate-200 bg-white px-4 py-10 text-center text-sm text-slate-500">
-            No active projects on the roadmap. Completed projects are in the Projects archive.
-          </p>
+          <div className="flex flex-col items-center justify-center rounded-xl border border-dashed border-slate-200 bg-white px-4 py-10 text-center">
+            <MapIcon className="mb-3 h-8 w-8 text-slate-300" />
+            <p className="text-sm font-semibold text-slate-700">No active projects on the roadmap</p>
+            <p className="mt-1 max-w-sm text-xs text-slate-500">
+              Completed projects are in the Projects archive. Start a blank project or use the UI/UX
+              template.
+            </p>
+            <div className="mt-4">
+              <NewProjectMenuButton onNewProject={onNewProject} />
+            </div>
+          </div>
         ) : (
           activeProjects.map((project) => {
             const color = getProjectStageColor(project);
@@ -1621,33 +1878,18 @@ function TeamWorkload({ workload }) {
       scrollable
     >
       <div className="flex flex-col gap-3">
-        <div className="flex items-end justify-between gap-3">
-          <div>
-            <p className="text-2xl font-bold tabular-nums tracking-tight text-slate-900">
-              {capacity}
-              <span className="text-sm font-semibold text-slate-400">%</span>
-            </p>
-            <div className="mt-1 flex items-center gap-1.5">
-              <span className={cn("h-2 w-2 rounded-full", balance.dot)} />
-              <span className={cn("text-[11px] font-semibold", balance.color)}>
-                {balance.label}
-              </span>
-            </div>
+        <div>
+          <p className="text-2xl font-bold tabular-nums tracking-tight text-slate-900">
+            {capacity}
+            <span className="text-sm font-semibold text-slate-400">%</span>
+          </p>
+          <div className="mt-1 flex items-center gap-1.5">
+            <span className={cn("h-2 w-2 rounded-full", balance.dot)} />
+            <span className={cn("text-[11px] font-semibold", balance.color)}>
+              {balance.label}
+            </span>
           </div>
-          <div className="h-10 w-20 shrink-0 rounded-lg bg-amber-50/80 p-1 ring-1 ring-amber-100">
-              <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={workloadSparkline}>
-                  <Line
-                    type="monotone"
-                    dataKey="v"
-                    stroke="#f59e0b"
-                    strokeWidth={2}
-                    dot={false}
-                  />
-                </LineChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
+        </div>
 
         <div>
           <div className="mb-1 flex justify-between text-[10px] font-semibold uppercase tracking-wide text-slate-400">
@@ -1776,11 +2018,12 @@ const DASHBOARD_TASK_GRID =
 
 function TaskList({ onViewAllTasks, onAddTask }) {
   const { tasks, updateTask } = useTasks();
+  const currentUser = useCurrentUser();
   const [filter, setFilter] = useState("all");
 
   const myTasks = useMemo(
-    () => tasks.filter((task) => task.assignee.name === CURRENT_USER.name),
-    [tasks]
+    () => tasks.filter((task) => isTaskAssignedToUser(task, currentUser)),
+    [tasks, currentUser]
   );
 
   const filterCounts = useMemo(() => {
@@ -1841,7 +2084,7 @@ function TaskList({ onViewAllTasks, onAddTask }) {
           <button
             type="button"
             onClick={onAddTask}
-            className="flex items-center gap-0.5 rounded-lg bg-blue-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-blue-700 sm:gap-1 sm:px-2.5 sm:py-1.5 sm:text-xs"
+            className="flex items-center gap-0.5 rounded-lg bg-indigo-600 px-2 py-1 text-[10px] font-semibold text-white hover:bg-indigo-700 sm:gap-1 sm:px-2.5 sm:py-1.5 sm:text-xs"
           >
             <Plus className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
             Add
@@ -1994,7 +2237,8 @@ function TaskList({ onViewAllTasks, onAddTask }) {
 
 // ─── App ───────────────────────────────────────────────────────────────────────
 
-export default function App() {
+export default function App({ onLogout }) {
+  const user = useAppUser()
   const initialRoute = readPageFromHash();
   const [activePage, setActivePage] = useState(initialRoute.page);
   const [settingsSection, setSettingsSection] = useState(initialRoute.settingsSection);
@@ -2002,6 +2246,7 @@ export default function App() {
   const [onboardingOpen, setOnboardingOpen] = useState(false);
   const [openAddTaskOnMount, setOpenAddTaskOnMount] = useState(false);
   const [editingProject, setEditingProject] = useState(null);
+  const [onboardingTemplateMode, setOnboardingTemplateMode] = useState("blank");
   const [projects, setProjects] = useState(() =>
     ensureUniqueProjectColors(
       loadProjectBin(seedProjects).projects.map(normalizeProject)
@@ -2009,7 +2254,6 @@ export default function App() {
   );
 
   const summary = useMemo(() => computeProjectSummary(projects), [projects]);
-  const isBlankWorkspace = filterActiveProjects(projects).length === 0;
 
   useEffect(() => {
     saveProjectBin(projects);
@@ -2032,9 +2276,14 @@ export default function App() {
     return () => window.removeEventListener("hashchange", onHashChange);
   }, []);
 
-  const openOnboarding = () => {
+  const openOnboarding = (options) => {
     setEditingProject(null);
     clearOnboardingDraft();
+    const templateMode =
+      options && typeof options === "object" && options.templateMode === "ui_ux"
+        ? "ui_ux"
+        : "blank";
+    setOnboardingTemplateMode(templateMode);
     setOnboardingOpen(true);
   };
   const closeOnboarding = () => {
@@ -2128,6 +2377,13 @@ export default function App() {
       });
       return;
     }
+    if (pageId === "account") {
+      setActivePage("account");
+      requestAnimationFrame(() => {
+        document.querySelector("main")?.scrollTo({ top: 0, behavior: "smooth" });
+      });
+      return;
+    }
     if (pageId === "systems") {
       setActivePage("systems");
       requestAnimationFrame(() => {
@@ -2191,12 +2447,19 @@ export default function App() {
       <Sidebar
         activePage={activePage === "completed-projects" ? "projects" : activePage}
         onNavigate={handleNavigate}
+        onLogout={onLogout ?? (() => {})}
+        user={user}
       />
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <MobileHeader />
         {activePage === "dashboard" && (
-          <Header onOpenOnboarding={openOnboarding} isBlankWorkspace={isBlankWorkspace} />
+          <Header
+            onOpenOnboarding={openOnboarding}
+            userName={user.name}
+            projects={projects}
+            onNavigate={handleNavigate}
+          />
         )}
 
         <main className="scrollbar-hidden min-h-0 flex-1 overflow-y-auto p-4 pb-20 sm:p-5 lg:pb-6 lg:p-6">
@@ -2214,7 +2477,11 @@ export default function App() {
               onOpenOnboarding={openOnboarding}
             />
           ) : activePage === "roadmap" ? (
-            <RoadmapPage projects={projects} onUpdateProject={handleUpdateProject} />
+            <RoadmapPage
+              projects={projects}
+              onUpdateProject={handleUpdateProject}
+              onNewProject={(templateMode) => openOnboarding({ templateMode })}
+            />
           ) : activePage === "tasks" ? (
             <TasksPage
               projects={projects}
@@ -2226,7 +2493,7 @@ export default function App() {
           ) : activePage === "reports" ? (
             <ReportsPage projects={projects} />
           ) : activePage === "team" ? (
-            <TeamPage projects={projects} />
+            <TeamPage projects={projects} onUpdateProject={handleUpdateProject} />
           ) : activePage === "messages" ? (
             <MessagesPage />
           ) : activePage === "file-manager" ? (
@@ -2235,6 +2502,8 @@ export default function App() {
             <DreamboardPage />
           ) : activePage === "settings" ? (
             <SettingsPage key={settingsSection} initialSection={settingsSection} />
+          ) : activePage === "account" ? (
+            <RoadmapAccountContent />
           ) : activePage === "systems" ? (
             <SystemsPage />
           ) : activePage === "completed-projects" ? (
@@ -2272,6 +2541,7 @@ export default function App() {
         onSubmit={handleOnboardingSubmit}
         editingProject={editingProject}
         projects={projects}
+        initialTemplateMode={onboardingTemplateMode}
       />
     </div>
       </div>

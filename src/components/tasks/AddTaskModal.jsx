@@ -105,7 +105,7 @@ function TaskReviewCard({ title, priority, description, attachments, onPreviewAt
   );
 }
 
-const initialForm = () => ({
+const initialForm = (defaultAssigneeId = "") => ({
   title: "",
   description: "",
   priority: "medium",
@@ -114,7 +114,7 @@ const initialForm = () => ({
   dueDate: "",
   dueTime: "",
   dueTimeSelected: false,
-  assigneeId: "enis",
+  assigneeId: defaultAssigneeId,
   preTasks: [],
   attachments: [],
 });
@@ -128,7 +128,8 @@ export default function AddTaskModal({
   projects = [],
 }) {
   const isEdit = mode === "edit";
-  const { assignees } = useTeam();
+  const { assignees, currentUserMemberId } = useTeam();
+  const defaultAssigneeId = currentUserMemberId ?? assignees[0]?.id ?? "";
   const [step, setStep] = useState(1);
   const [form, setForm] = useState(initialForm);
   const [preTaskInput, setPreTaskInput] = useState("");
@@ -170,12 +171,12 @@ export default function AddTaskModal({
       setStep(1);
       return;
     }
-    setForm(initialForm());
+    setForm(initialForm(defaultAssigneeId));
     setPreTaskInput("");
     setTimePickerOpen(false);
     setPreviewAttachment(null);
     setStep(1);
-  }, [open, isEdit, editingTask, assignees]);
+  }, [open, isEdit, editingTask, assignees, defaultAssigneeId]);
 
   useEffect(() => {
     if (!open || !isEdit || !editingTask?.project) return;

@@ -13,6 +13,7 @@ const VALID_PAGES = new Set([
   "dreamboard",
   "settings",
   "systems",
+  "account",
   "completed-projects",
 ]);
 

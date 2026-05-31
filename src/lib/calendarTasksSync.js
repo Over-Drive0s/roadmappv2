@@ -6,7 +6,6 @@ import {
   normalizeTask,
   preTasksFromTitles,
   resolveTaskStatusFromPreTasks,
-  TASK_ASSIGNEES,
 } from "../data/tasksData";
 
 export function calendarEventTaskId(eventId) {
@@ -29,14 +28,14 @@ function priorityForEventType(type) {
   }
 }
 
-function buildTaskFromEvent(event, existingTask) {
+function buildTaskFromEvent(event, existingTask, defaultAssignee) {
   const normalized = normalizeCalendarEvent(event);
   const preTaskTitles = getEventPreTasks(normalized);
   const preTasks = existingTask
     ? mergePreTasksFromTitles(getTaskPreTasks(existingTask), preTaskTitles)
     : preTasksFromTitles(preTaskTitles);
 
-  const assignee = existingTask?.assignee ?? TASK_ASSIGNEES[0];
+  const assignee = existingTask?.assignee ?? defaultAssignee;
   const dueDateIso = normalized.date ?? "";
   const dueTime = normalized.time?.trim() ?? "";
 
@@ -79,7 +78,7 @@ function tasksEquivalent(prev, next) {
 }
 
 /** Merge calendar events into the tasks list as linked tasks. */
-export function syncCalendarEventsIntoTasks(tasks, events) {
+export function syncCalendarEventsIntoTasks(tasks, events, defaultAssignee = null) {
   const normalizedEvents = events.map(normalizeCalendarEvent);
   const manualTasks = tasks.filter((task) => !task.calendarEventId);
   const existingByEventId = new Map(
@@ -89,7 +88,7 @@ export function syncCalendarEventsIntoTasks(tasks, events) {
   );
 
   const syncedTasks = normalizedEvents.map((event) =>
-    buildTaskFromEvent(event, existingByEventId.get(event.id))
+    buildTaskFromEvent(event, existingByEventId.get(event.id), defaultAssignee)
   );
 
   return [...manualTasks, ...syncedTasks];

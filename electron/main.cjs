@@ -25,6 +25,16 @@ function getBinsRoot() {
   return path.join(app.getPath("userData"), BINS_SUBDIR);
 }
 
+function getProfilePrefix(profileId) {
+  if (!profileId || !/^[a-zA-Z0-9-]+$/.test(profileId)) return "";
+  return path.join("profiles", profileId);
+}
+
+function resolveProfileRoot(profileId) {
+  const prefix = getProfilePrefix(profileId);
+  return prefix ? path.join(getBinsRoot(), prefix) : getBinsRoot();
+}
+
 async function ensureBinsRoot() {
   const root = getBinsRoot();
   await fs.mkdir(path.join(root, "files", "attachments"), { recursive: true });
@@ -52,13 +62,20 @@ async function writeJsonRelative(relativePath, payload) {
 }
 
 function createWindow() {
+  const WINDOW_WIDTH = 1460;
+  const WINDOW_HEIGHT = 940;
+
   const win = new BrowserWindow({
-    width: 1440,
-    height: 900,
+    width: WINDOW_WIDTH,
+    height: WINDOW_HEIGHT,
     minWidth: 1024,
     minHeight: 700,
+    center: true,
     show: false,
+    fullscreen: false,
+    fullscreenable: false,
     title: "Over Drive OS",
+    icon: path.join(__dirname, "..", "build", "icon.icns"),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -67,17 +84,22 @@ function createWindow() {
   });
 
   win.once("ready-to-show", () => {
-    if (!isDev) {
-      win.maximize();
+    win.setFullScreen(false);
+    if (win.isMaximized()) {
+      win.unmaximize();
     }
+    win.setSize(WINDOW_WIDTH, WINDOW_HEIGHT);
+    win.center();
     win.show();
   });
 
   if (isDev) {
-    win.loadURL("http://localhost:5173");
+    win.loadURL("http://localhost:5173/roadmap.html#/login");
     win.webContents.openDevTools({ mode: "detach" });
   } else {
-    win.loadFile(path.join(__dirname, "..", "dist", "index.html"));
+    win.loadFile(path.join(__dirname, "..", "dist", "roadmap.html"), {
+      hash: "/login",
+    });
   }
 }
 
@@ -86,10 +108,12 @@ app.whenReady().then(async () => {
 
   ipcMain.handle("bins:getRoot", () => getBinsRoot());
 
-  ipcMain.handle("bins:loadAll", async () => {
+  ipcMain.handle("bins:loadAll", async (_event, profileId) => {
+    const prefix = getProfilePrefix(profileId);
     const payload = {};
     for (const [binId, rel] of Object.entries(BIN_MAP)) {
-      payload[binId] = await readJsonRelative(rel);
+      const scopedRel = prefix ? path.join(prefix, rel) : rel;
+      payload[binId] = await readJsonRelative(scopedRel);
     }
     return payload;
   });
@@ -133,21 +157,28 @@ app.whenReady().then(async () => {
     return `data:${mime};base64,${buffer.toString("base64")}`;
   });
 
-  ipcMain.handle("bins:reset", async () => {
+  ipcMain.handle("bins:reset", async (_event, profileId) => {
+    const base = resolveProfileRoot(profileId);
     for (const rel of Object.values(BIN_MAP)) {
       try {
-        await fs.unlink(path.join(getBinsRoot(), rel));
+        await fs.unlink(path.join(base, rel));
       } catch (err) {
         if (err?.code !== "ENOENT") throw err;
       }
     }
-    const attachmentsDir = path.join(getBinsRoot(), "files", "attachments");
+    const attachmentsDir = path.join(base, "files", "attachments");
     try {
       const entries = await fs.readdir(attachmentsDir);
       await Promise.all(entries.map((entry) => fs.unlink(path.join(attachmentsDir, entry))));
     } catch (err) {
       if (err?.code !== "ENOENT") throw err;
     }
+    return true;
+  });
+
+  ipcMain.handle("bins:deleteProfileWorkspace", async (_event, profileId) => {
+    const profileRoot = resolveProfileRoot(profileId);
+    await fs.rm(profileRoot, { recursive: true, force: true });
     return true;
   });
 

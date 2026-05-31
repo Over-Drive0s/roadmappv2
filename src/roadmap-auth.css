@@ -1,0 +1,27 @@
+@import 'tailwindcss';
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply antialiased;
+    font-family: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  }
+}
+
+@layer utilities {
+  .roadmap-app {
+    min-height: 100dvh;
+    width: 100%;
+    background-color: #f8fafc;
+    color: #0f172a;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+
+  .dashboard-widget-scroll {
+    overflow-y: auto;
+  }
+}

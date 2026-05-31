@@ -130,14 +130,17 @@ function ReviewRow({ label, value }) {
   );
 }
 
-export default function NewProjectOnboarding({ open, onClose, onSubmit, editingProject, projects = [] }) {
+export default function NewProjectOnboarding({
+  open,
+  onClose,
+  onSubmit,
+  editingProject,
+  projects = [],
+  initialTemplateMode = "blank",
+}) {
   const isEditing = Boolean(editingProject);
   const { members } = useTeam();
   const workload = useSyncedTeamWorkload(projects);
-  const optionalTeamMembers = useMemo(
-    () => members.filter((member) => member.id !== "enis"),
-    [members]
-  );
   const [step, setStep] = useState(1);
   const [form, setForm] = useState(initialForm);
   const [selectedPhaseId, setSelectedPhaseId] = useState("foundation");
@@ -168,6 +171,12 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
     }
 
     clearOnboardingDraft();
+    const templateMode = initialTemplateMode === "ui_ux" ? "ui_ux" : "blank";
+    setTemplateMode(templateMode);
+    if (templateMode === "ui_ux") {
+      setTemplateDraft(cloneUiUxTemplate());
+      setActiveTemplatePhaseId("foundation");
+    }
     setForm({
       ...initialForm(),
       foundation: {
@@ -177,7 +186,7 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
     });
     setStep(1);
     setSelectedPhaseId("foundation");
-  }, [open, editingProject, projects]);
+  }, [open, editingProject, projects, initialTemplateMode]);
 
   const { foundation, phases, team, kpis } = form;
 
@@ -750,11 +759,11 @@ export default function NewProjectOnboarding({ open, onClose, onSubmit, editingP
                 onChange={(e) => updateTeam("projectOwner", e.target.value)}
               />
 
-              {optionalTeamMembers.length > 0 && (
+              {members.length > 0 && (
               <div className="space-y-2">
                 <span className="block text-xs font-semibold text-slate-900">Team Members</span>
                 <div className="grid gap-2 sm:grid-cols-2">
-                  {optionalTeamMembers.map((member) => (
+                  {members.map((member) => (
                     <label
                       key={member.id}
                       className={cn(
