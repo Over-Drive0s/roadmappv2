@@ -39,6 +39,8 @@ export interface RoadmapProfile {
 
 const PROFILES_KEY = 'overdrive-roadmap-profiles'
 const SESSION_KEY = 'overdrive-roadmap-session'
+const GUEST_PROFILE_KEY = 'overdrive-roadmap-guest-profile'
+export const GUEST_SESSION_PREFIX = 'guest-'
 
 function getDefaultTimezone() {
   return Intl.DateTimeFormat().resolvedOptions().timeZone
@@ -95,6 +97,55 @@ export function getRoadmapProfileFullName(
 
 export function getRoadmapProfileRole(profile: Pick<RoadmapProfile, 'role'>) {
   return profile.role?.trim() ?? ''
+}
+
+export function isGuestSessionId(sessionId: string | null | undefined): boolean {
+  return Boolean(sessionId?.startsWith(GUEST_SESSION_PREFIX))
+}
+
+export function isGuestProfile(profile: Pick<RoadmapProfile, 'id'> | null | undefined): boolean {
+  return isGuestSessionId(profile?.id ?? null)
+}
+
+function readGuestProfile(): RoadmapProfile | null {
+  try {
+    const raw = sessionStorage.getItem(GUEST_PROFILE_KEY)
+    if (!raw) return null
+    return JSON.parse(raw) as RoadmapProfile
+  } catch {
+    return null
+  }
+}
+
+function writeGuestProfile(profile: RoadmapProfile) {
+  sessionStorage.setItem(GUEST_PROFILE_KEY, JSON.stringify(profile))
+}
+
+export function clearGuestSession() {
+  sessionStorage.removeItem(GUEST_PROFILE_KEY)
+}
+
+export function createGuestProfile(): RoadmapProfile {
+  const now = new Date().toISOString()
+  return {
+    id: `${GUEST_SESSION_PREFIX}${createId()}`,
+    username: 'Guest',
+    password: '',
+    workspaceName: 'Guest Workspace',
+    fullName: 'Guest',
+    role: 'Viewer',
+    email: 'guest@overdrive.os',
+    timezone: getDefaultTimezone(),
+    createdAt: now,
+    lastLoginAt: now,
+  }
+}
+
+export function loginGuest(): RoadmapProfile {
+  const profile = createGuestProfile()
+  writeGuestProfile(profile)
+  setRoadmapSessionId(profile.id)
+  return profile
 }
 
 export function getRoadmapProfiles(): RoadmapProfile[] {
@@ -189,12 +240,18 @@ export function setRoadmapSessionId(profileId: string | null) {
     sessionStorage.setItem(SESSION_KEY, profileId)
   } else {
     sessionStorage.removeItem(SESSION_KEY)
+    clearGuestSession()
   }
 }
 
 export function getActiveRoadmapProfile(): RoadmapProfile | null {
   const sessionId = getRoadmapSessionId()
   if (!sessionId) return null
+  if (isGuestSessionId(sessionId)) {
+    const guest = readGuestProfile()
+    if (guest?.id === sessionId) return guest
+    return null
+  }
   return readProfiles().find((profile) => profile.id === sessionId) ?? null
 }
 

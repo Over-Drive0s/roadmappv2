@@ -4,6 +4,7 @@ import AdminLoginModal from '../../components/roadmap/AdminLoginModal'
 import RoadmapLoginPanel from '../../components/roadmap/RoadmapLoginPanel'
 import RoadmapPagePanel from '../../components/roadmap/RoadmapPagePanel'
 import { useRoadmapAuth } from '../../context/RoadmapAuthContext'
+import { LOGO_FULL_URL } from '../../lib/assetUrl'
 import { reloadToHashRoute } from '../../lib/reloadToHashRoute'
 
 type LoginMode = 'sign-in' | 'create'
@@ -14,7 +15,7 @@ type LoginLocationState = {
 
 export default function RoadmapLogin() {
   const location = useLocation()
-  const { login, loginAdmin, register, isAuthenticated } = useRoadmapAuth()
+  const { login, loginAdmin, loginGuest, register, isAuthenticated } = useRoadmapAuth()
 
   const redirectTo =
     (location.state as LoginLocationState | null)?.from &&
@@ -79,6 +80,12 @@ export default function RoadmapLogin() {
     reloadToHashRoute(redirectTo)
   }
 
+  const handleGuestLogin = () => {
+    setError('')
+    loginGuest()
+    reloadToHashRoute('/dashboard')
+  }
+
   const handleAdminLogin = (adminUsername: string, adminPassword: string) => {
     setAdminError('')
     const result = loginAdmin(adminUsername, adminPassword)
@@ -92,8 +99,16 @@ export default function RoadmapLogin() {
   }
 
   return (
-    <div className="flex min-h-dvh flex-col items-center justify-center px-4 py-10 sm:px-6">
-      <RoadmapPagePanel compact>
+    <div className="roadmap-login-screen flex min-h-dvh flex-col items-center justify-center px-4 py-10 sm:px-6">
+      <div className="roadmap-login-screen__content flex w-full max-w-xl flex-col items-center">
+      <img
+        src={LOGO_FULL_URL}
+        alt="Over Drive"
+        className="-mb-3 h-auto w-full max-w-[220px] sm:max-w-[260px]"
+        draggable={false}
+      />
+
+      <RoadmapPagePanel compact elevated>
         <RoadmapLoginPanel
           embedded
           mode={mode}
@@ -109,6 +124,7 @@ export default function RoadmapLogin() {
           onWorkspaceNameChange={setWorkspaceName}
           onSignIn={handleSignIn}
           onCreateAccount={handleCreateAccount}
+          onGuestLogin={handleGuestLogin}
         />
       </RoadmapPagePanel>
 
@@ -118,10 +134,11 @@ export default function RoadmapLogin() {
           setAdminError('')
           setAdminOpen(true)
         }}
-        className="mt-4 text-xs font-medium text-slate-400 transition hover:text-indigo-600"
+        className="mt-4 text-xs font-medium text-slate-500/90 transition hover:text-indigo-600"
       >
         Admin login
       </button>
+      </div>
 
       <AdminLoginModal
         open={adminOpen}

@@ -2,6 +2,7 @@
 const BASE = import.meta.env.BASE_URL ?? "/";
 
 export const LOGO_URL = `${BASE}over-drive-logo.png`;
+export const LOGO_FULL_URL = `${BASE}over-drive-logo-full.png`;
 export const PROFILE_ENIS_URL = `${BASE}profile-enis.png`;
 
 export function assetUrl(relativePath) {

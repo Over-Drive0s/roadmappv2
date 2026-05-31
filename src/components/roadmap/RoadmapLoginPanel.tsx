@@ -17,6 +17,7 @@ export default function RoadmapLoginPanel({
   onWorkspaceNameChange,
   onSignIn,
   onCreateAccount,
+  onGuestLogin,
   embedded = false,
 }: {
   mode: 'sign-in' | 'create'
@@ -32,6 +33,7 @@ export default function RoadmapLoginPanel({
   onWorkspaceNameChange: (value: string) => void
   onSignIn: (event: FormEvent) => void
   onCreateAccount: (event: FormEvent) => void
+  onGuestLogin: () => void
   embedded?: boolean
 }) {
   const content = (
@@ -114,6 +116,28 @@ export default function RoadmapLoginPanel({
           >
             Open dashboard
           </button>
+
+          <div className="relative py-1">
+            <div className="absolute inset-0 flex items-center" aria-hidden="true">
+              <div className="w-full border-t border-slate-200" />
+            </div>
+            <div className="relative flex justify-center">
+              <span className="bg-white px-3 text-xs font-medium uppercase tracking-wide text-slate-400">
+                or
+              </span>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onGuestLogin}
+            className="w-full rounded-xl border border-slate-200 bg-white py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:border-indigo-200 hover:bg-indigo-50/40 hover:text-indigo-700"
+          >
+            Continue as guest
+          </button>
+          <p className="text-center text-xs text-slate-500">
+            Explore the dashboard without creating an account. Guest data is temporary.
+          </p>
         </form>
       ) : (
         <form onSubmit={onCreateAccount} className="space-y-4">

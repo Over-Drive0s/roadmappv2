@@ -21,6 +21,8 @@ import {
   getActiveRoadmapProfile,
   getRoadmapProfiles,
   getRoadmapSessionId,
+  isGuestProfile,
+  loginGuest,
   loginRoadmapAdmin,
   setRoadmapSessionId,
   updateRoadmapProfile,
@@ -32,8 +34,10 @@ import type { GoogleUserInfo } from '../lib/roadmap/googleAuth'
 interface RoadmapAuthContextValue {
   profile: RoadmapProfile | null
   isAuthenticated: boolean
+  isGuest: boolean
   isAdmin: boolean
   login: (username: string, password: string) => { ok: true } | { ok: false; error: string }
+  loginGuest: () => void
   loginAdmin: (username: string, password: string) => { ok: true } | { ok: false; error: string }
   register: (input: {
     username: string
@@ -86,6 +90,11 @@ export function RoadmapAuthProvider({ children }: { children: ReactNode }) {
     setRoadmapSessionId(matched.id)
     setProfile(matched)
     return { ok: true as const }
+  }, [])
+
+  const loginGuestSession = useCallback(() => {
+    const guest = loginGuest()
+    setProfile(guest)
   }, [])
 
   const loginAdmin = useCallback((username: string, password: string) => {
@@ -285,8 +294,10 @@ export function RoadmapAuthProvider({ children }: { children: ReactNode }) {
     () => ({
       profile,
       isAuthenticated: Boolean(getRoadmapSessionId() && (profile ?? getActiveRoadmapProfile())),
+      isGuest: isGuestProfile(profile),
       isAdmin: isAdminProfile(profile),
       login,
+      loginGuest: loginGuestSession,
       loginAdmin,
       register,
       updateProfile,
@@ -301,7 +312,7 @@ export function RoadmapAuthProvider({ children }: { children: ReactNode }) {
       adminDeleteProfile,
       logout,
     }),
-    [profile, login, loginAdmin, register, updateProfile, changePassword, deleteAccount, connectGoogle, disconnectGoogle, connectSocial, disconnectSocial, listProfiles, adminUpdateProfile, adminDeleteProfile, logout],
+    [profile, login, loginGuestSession, loginAdmin, register, updateProfile, changePassword, deleteAccount, connectGoogle, disconnectGoogle, connectSocial, disconnectSocial, listProfiles, adminUpdateProfile, adminDeleteProfile, logout],
   )
 
   return <RoadmapAuthContext.Provider value={value}>{children}</RoadmapAuthContext.Provider>
